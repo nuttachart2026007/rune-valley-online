@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Rune Valley Online</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
@@ -42,6 +42,29 @@
             border:1px solid #5c4a8a; border-radius:3px; outline:none; }
   #hint { position:absolute; right:12px; top:10px; color:#cfc4e8; font-size:11px; text-align:right;
           text-shadow:1px 1px 0 #000; z-index:5; line-height:1.6; }
+  /* ---------- MOBILE / TOUCH ---------- */
+  #touchui { position:absolute; inset:0; pointer-events:none; z-index:8; }
+  #joy { position:absolute; left:18px; bottom:52px; width:116px; height:116px; border-radius:50%;
+         background:rgba(90,70,140,.25); border:2px solid rgba(160,140,220,.45); pointer-events:auto;
+         touch-action:none; }
+  #joyknob { position:absolute; left:33px; top:33px; width:50px; height:50px; border-radius:50%;
+             background:rgba(200,180,255,.55); border:2px solid rgba(255,255,255,.5); }
+  .tbtn { position:absolute; border-radius:50%; background:rgba(90,70,140,.35); border:2px solid rgba(160,140,220,.55);
+          color:#ffe9a8; font-weight:bold; display:flex; align-items:center; justify-content:center;
+          pointer-events:auto; touch-action:none; text-shadow:1px 1px 0 #000; user-select:none; -webkit-user-select:none; }
+  #btnAtk { right:22px; bottom:56px; width:76px; height:76px; font-size:16px; background:rgba(180,60,60,.4); border-color:rgba(255,120,120,.6); }
+  #btnS1 { right:112px; bottom:44px; width:46px; height:46px; font-size:14px; }
+  #btnS2 { right:128px; bottom:100px; width:46px; height:46px; font-size:14px; }
+  #btnS3 { right:96px; bottom:152px; width:46px; height:46px; font-size:14px; }
+  #btnChat { right:22px; bottom:152px; width:42px; height:42px; font-size:16px; }
+  @media (max-width: 1000px), (pointer: coarse) {
+    body { align-items:flex-start; }
+    #wrap { width:100vw; }
+    canvas { width:100vw; height:auto; border:none; border-radius:0; }
+    #hint { display:none; }
+    #chatlog { width:60vw; font-size:11px; }
+    #chatin { width:70vw; }
+  }
 </style>
 </head>
 <body>
@@ -50,6 +73,14 @@
   <div id="chatlog"></div>
   <input id="chatin" maxlength="120" placeholder="Say something... (Enter to send, Esc to close)">
   <div id="hint">WASD / Arrows — move<br>SPACE — attack<br>1 / 2 / 3 — skills<br>ENTER — chat</div>
+  <div id="touchui" style="display:none;">
+    <div id="joy"><div id="joyknob"></div></div>
+    <div id="btnAtk" class="tbtn">ATK</div>
+    <div id="btnS1" class="tbtn">1</div>
+    <div id="btnS2" class="tbtn">2</div>
+    <div id="btnS3" class="tbtn">3</div>
+    <div id="btnChat" class="tbtn">&#128172;</div>
+  </div>
   <div id="login">
     <h1>RUNE VALLEY</h1>
     <h2>~ ONLINE ~ a pixel adventure with friends ~</h2>
@@ -84,6 +115,57 @@ let mySkills = [];                // [{name,lvl,cd}] from server
 let skillCds = [0, 0, 0];         // ready-at timestamps
 let banner = null;                // {text, until}
 const SKILL_KEYS = { swordsman: ['bash','whirl','warcry'], archer: ['dstrafe','arrowrain','snipe'], mage: ['firebolt','frostnova','meteor'] };
+const IS_TOUCH = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+let touchVec = { x: 0, y: 0 };
+let touchReady = false;
+
+function setupTouch() {
+  if (!IS_TOUCH || touchReady) return;
+  touchReady = true;
+  document.getElementById('touchui').style.display = 'block';
+  const joy = document.getElementById('joy'), knob = document.getElementById('joyknob');
+  let activeId = null;
+  function handle(e) {
+    const r = joy.getBoundingClientRect();
+    const cx0 = r.left + r.width / 2, cy0 = r.top + r.height / 2;
+    for (const t of e.changedTouches) {
+      if (activeId !== null && t.identifier !== activeId) continue;
+      activeId = t.identifier;
+      let dx = t.clientX - cx0, dy = t.clientY - cy0;
+      const d = Math.hypot(dx, dy), max = r.width / 2;
+      if (d > max) { dx = dx / d * max; dy = dy / d * max; }
+      knob.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+      touchVec = { x: dx / max, y: dy / max };
+    }
+  }
+  function reset() { activeId = null; touchVec = { x: 0, y: 0 }; knob.style.transform = 'translate(0,0)'; }
+  joy.addEventListener('touchstart', e => { e.preventDefault(); handle(e); }, { passive: false });
+  joy.addEventListener('touchmove', e => { e.preventDefault(); handle(e); }, { passive: false });
+  joy.addEventListener('touchend', e => { e.preventDefault(); reset(); }, { passive: false });
+  joy.addEventListener('touchcancel', reset);
+
+  function bindBtn(id, fn) {
+    document.getElementById(id).addEventListener('touchstart', e => {
+      e.preventDefault();
+      if (me && !me.dead && ws && ws.readyState === 1) fn();
+    }, { passive: false });
+  }
+  bindBtn('btnAtk', () => {
+    if (Date.now() - lastAtkSent > (CLS_CD[me.c] || 500)) {
+      lastAtkSent = Date.now();
+      ws.send(JSON.stringify({ t: 'attack' }));
+    }
+  });
+  bindBtn('btnS1', () => ws.send(JSON.stringify({ t: 'skill', n: 1 })));
+  bindBtn('btnS2', () => ws.send(JSON.stringify({ t: 'skill', n: 2 })));
+  bindBtn('btnS3', () => ws.send(JSON.stringify({ t: 'skill', n: 3 })));
+  document.getElementById('btnChat').addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (!me) return;
+    chatOpen = true; chatin.style.display = 'block';
+    setTimeout(() => chatin.focus(), 0);
+  }, { passive: false });
+}
 
 const CLS_SPEED = { swordsman:3.0, archer:3.2, mage:2.9 };
 const CLS_CD    = { swordsman:500, archer:650, mage:900 };
@@ -127,6 +209,7 @@ function onMsg(e) {
     document.getElementById('login').style.display = 'none';
     if (m.restored) log('Welcome back, ' + me.n + '! Lv' + me.lv + ' ' + me.c + ' restored.', 'lvl');
     else log('Welcome to Rune Valley, ' + me.n + '! Remember your PIN.', 'sys');
+    setupTouch();
     requestAnimationFrame(frame);
     return;
   }
@@ -301,9 +384,13 @@ function updateMe() {
   if (keys['s'] || keys['arrowdown']) dy += 1;
   if (keys['a'] || keys['arrowleft']) dx -= 1;
   if (keys['d'] || keys['arrowright']) dx += 1;
+  let analog = false;
+  if (!dx && !dy && (Math.abs(touchVec.x) > 0.22 || Math.abs(touchVec.y) > 0.22)) {
+    dx = touchVec.x; dy = touchVec.y; analog = true;
+  }
   me.moving = !!(dx || dy);
   if (me.moving) {
-    if (dx && dy) { dx *= 0.707; dy *= 0.707; }
+    if (!analog && dx && dy) { dx *= 0.707; dy *= 0.707; }
     if (dy < 0) me.dir = 'up'; else if (dy > 0) me.dir = 'down';
     if (dx < 0) me.dir = 'left'; else if (dx > 0) me.dir = 'right';
     const nx = me.x + dx * sp, ny = me.y + dy * sp;
