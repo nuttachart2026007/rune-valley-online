@@ -80,8 +80,33 @@ const SPAWN = { x: 13 * TILE, y: 7 * TILE };
 const CLASSES = {
   swordsman: { hp: 140, atk: 11, range: 48,  cooldown: 500,  speed: 3.0 },
   archer:    { hp: 100, atk: 9,  range: 150, cooldown: 650,  speed: 3.2 },
-  mage:      { hp: 90,  atk: 13, range: 170, cooldown: 900,  speed: 2.9 }
+  mage:      { hp: 90,  atk: 13, range: 170, cooldown: 900,  speed: 2.9 },
+  thief:     { hp: 110, atk: 10, range: 44,  cooldown: 380,  speed: 3.6 },
+  merchant:  { hp: 130, atk: 9,  range: 48,  cooldown: 550,  speed: 2.9 }
 };
+
+// ---------------- SHOP & EQUIPMENT ----------------
+const WEAPON_TIERS = [0, 5, 12, 25];    // atk bonus per tier
+const ARMOR_TIERS  = [0, 40, 100, 220]; // max HP bonus per tier
+const TIER_NAMES_W = ['-', 'Iron', 'Steel', 'Runic'];
+const TIER_NAMES_A = ['-', 'Leather', 'Chain', 'Runic'];
+const SHOP_ITEMS = {
+  w1: { slot: 'w', tier: 1, price: 200 },  w2: { slot: 'w', tier: 2, price: 800 },  w3: { slot: 'w', tier: 3, price: 2500 },
+  a1: { slot: 'a', tier: 1, price: 200 },  a2: { slot: 'a', tier: 2, price: 800 },  a3: { slot: 'a', tier: 3, price: 2500 },
+  red: { pot: 'red', price: 15 },          white: { pot: 'white', price: 60 }
+};
+const MAX_PLUS = 10;
+function upgradeCost(cur) { return Math.round(100 * Math.pow(1.6, cur)); }
+function upgradeChance(cur) { return Math.pow(0.8, cur); } // 80% at +0, ~13% at +9
+function inTown(p) { return p.x >= 8 * TILE && p.x <= 18 * TILE && p.y >= 3 * TILE && p.y <= 8 * TILE; }
+function defaultEq() { return { wt: 0, wp: 0, at: 0, ap: 0, red: 0, white: 0 }; }
+function recalcStats(p) {
+  const st = statsForLevel(p.cls, p.level);
+  const ratio = p.maxHp ? Math.min(1, p.hp / p.maxHp) : 1;
+  p.atk = st.atk + WEAPON_TIERS[p.eq.wt] + p.eq.wp * 3;
+  p.maxHp = st.maxHp + ARMOR_TIERS[p.eq.at] + p.eq.ap * 25;
+  p.hp = Math.max(1, Math.round(p.maxHp * ratio));
+}
 // skill defs: unlock level, cooldown ms, behavior handled in useSkill()
 const SKILLS = {
   swordsman: [
@@ -98,6 +123,16 @@ const SKILLS = {
     { key: 'firebolt',  name: 'Firebolt',     lvl: 3,  cd: 4000 },
     { key: 'frostnova', name: 'Frost Nova',   lvl: 6,  cd: 10000 },
     { key: 'meteor',    name: 'Meteor',       lvl: 10, cd: 18000 }
+  ],
+  thief: [
+    { key: 'dbl',       name: 'Double Attack', lvl: 3,  cd: 4000 },
+    { key: 'backstab',  name: 'Backstab',      lvl: 6,  cd: 8000 },
+    { key: 'shadow',    name: 'Shadow Dash',   lvl: 10, cd: 12000 }
+  ],
+  merchant: [
+    { key: 'mammonite', name: 'Mammonite',    lvl: 3,  cd: 5000 },
+    { key: 'cointoss',  name: 'Coin Toss',    lvl: 6,  cd: 8000 },
+    { key: 'greed',     name: 'Greed Aura',   lvl: 10, cd: 20000 }
   ]
 };
 
@@ -173,7 +208,7 @@ function verifyToken(token) {
   try { return JSON.parse(Buffer.from(data, 'base64url').toString('utf8')); } catch { return null; }
 }
 function recordOf(p) {
-  return { name: p.name, cls: p.cls, level: p.level, xp: p.xp, zeny: p.zeny, pinHash: p.pinHash, seen: Date.now() };
+  return { name: p.name, cls: p.cls, level: p.level, xp: p.xp, zeny: p.zeny, eq: p.eq, pinHash: p.pinHash, seen: Date.now() };
 }
 function persist(p) {
   saves[p.name.toLowerCase()] = recordOf(p);
@@ -197,16 +232,20 @@ function makePlayer(ws, name, cls, pinHash, restore) {
   const id = 'p' + (nextPlayerId++);
   const level = restore ? restore.level : 1;
   const st = statsForLevel(cls, level);
-  return {
+  const p = {
     id, ws, name, cls, pinHash,
     x: SPAWN.x + (Math.random() * 60 - 30), y: SPAWN.y + (Math.random() * 60 - 30),
     dir: 'down', moving: false,
     hp: st.maxHp, maxHp: st.maxHp, atk: st.atk,
     level, xp: restore ? restore.xp : 0, zeny: restore ? restore.zeny : 0,
-    lastAtk: 0, skillCd: [0, 0, 0], buffUntil: 0,
+    eq: (restore && restore.eq) ? { ...defaultEq(), ...restore.eq } : defaultEq(),
+    lastAtk: 0, lastPot: 0, skillCd: [0, 0, 0], buffUntil: 0, zenyBuffUntil: 0,
     dead: false, respawnAt: 0, lastMoveMsg: Date.now(),
     protectUntil: Date.now() + 4000
   };
+  recalcStats(p);
+  p.hp = p.maxHp;
+  return p;
 }
 
 function xpNeeded(level) { return Math.floor(20 * Math.pow(level, 1.6)); }
@@ -218,8 +257,8 @@ function grantXp(p, amount) {
     p.xp -= xpNeeded(p.level);
     p.level++;
     leveled = true;
-    const st = statsForLevel(p.cls, p.level);
-    p.maxHp = st.maxHp; p.atk = st.atk; p.hp = p.maxHp;
+    recalcStats(p);
+    p.hp = p.maxHp;
     broadcast({ t: 'event', kind: 'levelup', id: p.id, level: p.level });
   }
   if (leveled) sendSave(p);
@@ -379,6 +418,37 @@ function useSkill(p, n) {
     const o = t ? tgtPos(t) : p;
     fx.x = Math.round(o.x); fx.y = Math.round(o.y);
     used = aoe(o.x, o.y, 125, 3.5, false);
+  } else if (def.key === 'dbl') {
+    const t = nearestAny(p, c.range + 16);
+    if (t) { const o = tgtPos(t); fx.x = Math.round(o.x); fx.y = Math.round(o.y); hitAny(p, t, dmgRoll(p, 1.3)); hitAny(p, t, dmgRoll(p, 1.3)); used = true; }
+  } else if (def.key === 'backstab') {
+    const t = nearestAny(p, c.range + 16);
+    if (t) { const o = tgtPos(t); fx.x = Math.round(o.x); fx.y = Math.round(o.y); hitAny(p, t, dmgRoll(p, 2.8)); used = true; }
+  } else if (def.key === 'shadow') {
+    const t = nearestAny(p, 300);
+    if (t) {
+      const o = tgtPos(t);
+      // teleport next to target (find a free spot)
+      for (const [ox, oy] of [[-30,0],[30,0],[0,-30],[0,30],[-24,-24],[24,24]]) {
+        if (!isBlocked(o.x + ox, o.y + oy)) { p.x = o.x + ox; p.y = o.y + oy; break; }
+      }
+      fx.x = Math.round(o.x); fx.y = Math.round(o.y);
+      hitAny(p, t, dmgRoll(p, 2));
+      used = true;
+    }
+  } else if (def.key === 'mammonite') {
+    if (p.zeny >= 20) {
+      const t = nearestAny(p, c.range + 16);
+      if (t) { p.zeny -= 20; const o = tgtPos(t); fx.x = Math.round(o.x); fx.y = Math.round(o.y); hitAny(p, t, dmgRoll(p, 4)); used = true; }
+    }
+  } else if (def.key === 'cointoss') {
+    if (p.zeny >= 10) {
+      const t = nearestAny(p, 200);
+      if (t) { p.zeny -= 10; const o = tgtPos(t); fx.x = Math.round(o.x); fx.y = Math.round(o.y); hitAny(p, t, dmgRoll(p, 2)); used = true; }
+    }
+  } else if (def.key === 'greed') {
+    p.zenyBuffUntil = now + 10000;
+    used = true;
   }
 
   if (used || def.key === 'warcry') {
@@ -460,6 +530,63 @@ wss.on('connection', (ws) => {
     }
 
     if (msg.t === 'skill') { useSkill(me, Number(msg.n) - 1); return; }
+    if (msg.t === 'shop') {
+      if (!inTown(me)) { send(ws, { t: 'shopnote', ok: false, msg: 'Walk to the shop stall in town first!' }); return; }
+      if (msg.action === 'buy') {
+        const it = SHOP_ITEMS[msg.item];
+        if (!it) return;
+        if (me.zeny < it.price) { send(ws, { t: 'shopnote', ok: false, msg: 'Not enough zeny!' }); return; }
+        if (it.pot) {
+          me.zeny -= it.price;
+          me.eq[it.pot]++;
+          send(ws, { t: 'shopnote', ok: true, msg: 'Bought 1 ' + (it.pot === 'red' ? 'Red' : 'White') + ' Potion' });
+        } else {
+          const curTier = it.slot === 'w' ? me.eq.wt : me.eq.at;
+          if (curTier >= it.tier) { send(ws, { t: 'shopnote', ok: false, msg: 'You already own this tier or better' }); return; }
+          me.zeny -= it.price;
+          if (it.slot === 'w') { me.eq.wt = it.tier; me.eq.wp = 0; }
+          else { me.eq.at = it.tier; me.eq.ap = 0; }
+          recalcStats(me);
+          send(ws, { t: 'shopnote', ok: true, msg: 'Equipped ' + (it.slot === 'w' ? TIER_NAMES_W[it.tier] + ' Weapon' : TIER_NAMES_A[it.tier] + ' Armor') + '!' });
+        }
+        sendSave(me);
+        return;
+      }
+      if (msg.action === 'upgrade') {
+        const slot = msg.slot === 'w' ? 'w' : 'a';
+        const tier = slot === 'w' ? me.eq.wt : me.eq.at;
+        const cur = slot === 'w' ? me.eq.wp : me.eq.ap;
+        if (tier < 1) { send(ws, { t: 'shopnote', ok: false, msg: 'Buy equipment first!' }); return; }
+        if (cur >= MAX_PLUS) { send(ws, { t: 'shopnote', ok: false, msg: 'Already at max +' + MAX_PLUS + '!' }); return; }
+        const cost = upgradeCost(cur);
+        if (me.zeny < cost) { send(ws, { t: 'shopnote', ok: false, msg: 'Need ' + cost + 'z to attempt +' + (cur + 1) }); return; }
+        me.zeny -= cost;
+        if (Math.random() < upgradeChance(cur)) {
+          if (slot === 'w') me.eq.wp++; else me.eq.ap++;
+          recalcStats(me);
+          const plus = slot === 'w' ? me.eq.wp : me.eq.ap;
+          send(ws, { t: 'shopnote', ok: true, msg: 'SUCCESS! ' + (slot === 'w' ? 'Weapon' : 'Armor') + ' is now +' + plus + '!' });
+          if (plus >= 8) broadcast({ t: 'event', kind: 'boss', text: me.name + ' upgraded their ' + (slot === 'w' ? 'weapon' : 'armor') + ' to +' + plus + '!' });
+        } else {
+          send(ws, { t: 'shopnote', ok: false, msg: 'FAILED... ' + cost + 'z gone. The anvil laughs.' });
+        }
+        sendSave(me);
+        return;
+      }
+      return;
+    }
+    if (msg.t === 'pot') {
+      const kind = msg.kind === 'white' ? 'white' : 'red';
+      const now = Date.now();
+      if (me.eq[kind] > 0 && now - me.lastPot > 800 && me.hp < me.maxHp) {
+        me.lastPot = now;
+        me.eq[kind]--;
+        const heal = kind === 'red' ? 80 : 300;
+        me.hp = Math.min(me.maxHp, me.hp + heal);
+        broadcast({ t: 'event', kind: 'heal', id: me.id, amt: heal, x: Math.round(me.x), y: Math.round(me.y) });
+      }
+      return;
+    }
     if (msg.t === 'rank') {
       const top = Object.values(saves)
         .sort((a, b) => b.level - a.level || b.zeny - a.zeny)
@@ -491,7 +618,10 @@ function killMonster(m, killer) {
   const t = MONSTER_TYPES[m.type];
   m.dead = true;
   m.respawnAt = Date.now() + (t.boss ? 600000 : 8000 + Math.random() * 7000);
-  killer.zeny += t.zeny + Math.floor(Math.random() * t.zeny * 0.5);
+  let zmult = 1;
+  if (killer.cls === 'merchant') zmult *= 1.3;
+  if (Date.now() < killer.zenyBuffUntil) zmult *= 2;
+  killer.zeny += Math.round((t.zeny + Math.floor(Math.random() * t.zeny * 0.5)) * zmult);
   broadcast({ t: 'event', kind: 'mdeath', id: m.id, x: m.x, y: m.y, killer: killer.id, zeny: t.zeny });
   if (t.boss) broadcast({ t: 'event', kind: 'boss', text: killer.name + ' has slain ' + t.name + '! It will return in 10 minutes...' });
   grantXp(killer, t.xp);
@@ -603,7 +733,8 @@ function publicPlayer(p) {
   return {
     id: p.id, n: p.name, c: p.cls, x: Math.round(p.x), y: Math.round(p.y),
     d: p.dir, mv: p.moving, hp: p.hp, mh: p.maxHp, lv: p.level,
-    xp: p.xp, xn: xpNeeded(p.level), z: p.zeny, dead: p.dead, b: isBuffed(p) ? 1 : 0
+    xp: p.xp, xn: xpNeeded(p.level), z: p.zeny, dead: p.dead, b: isBuffed(p) ? 1 : 0,
+    eq: [p.eq.wt, p.eq.wp, p.eq.at, p.eq.ap], po: [p.eq.red, p.eq.white]
   };
 }
 

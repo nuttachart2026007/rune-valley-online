@@ -19,8 +19,8 @@
   #login h2 { color:#a89bc9; font-size:13px; margin:6px 0 28px; font-weight:normal; letter-spacing:2px; }
   #login input { width:260px; padding:10px; font-family:inherit; font-size:16px; text-align:center;
                  background:#120d1d; color:#ffe9a8; border:2px solid #5c4a8a; border-radius:4px; outline:none; }
-  #classes { display:flex; gap:14px; margin:22px 0; }
-  .cls { width:120px; padding:12px 8px; background:#241b38; border:2px solid #4a3f66; border-radius:6px;
+  #classes { display:flex; gap:10px; margin:18px 0; flex-wrap:wrap; justify-content:center; max-width:640px; }
+  .cls { width:112px; padding:10px 6px; background:#241b38; border:2px solid #4a3f66; border-radius:6px;
          color:#cfc4e8; text-align:center; cursor:pointer; transition:.15s; }
   .cls:hover { border-color:#ffd76a; transform:translateY(-3px); }
   .cls.sel { border-color:#ffd76a; background:#3a2c56; box-shadow:0 0 14px rgba(255,215,106,.4); }
@@ -81,6 +81,9 @@
     <div id="btnS3" class="tbtn">3</div>
     <div id="btnChat" class="tbtn">&#128172;</div>
     <div id="btnRank" class="tbtn" style="right:12px; top:12px; bottom:auto; width:42px; height:42px; font-size:16px;">&#127942;</div>
+    <div id="btnShop" class="tbtn" style="right:62px; top:12px; bottom:auto; width:42px; height:42px; font-size:16px;">&#128722;</div>
+    <div id="btnPotR" class="tbtn" style="left:150px; bottom:44px; width:44px; height:44px; font-size:15px; background:rgba(180,60,60,.35);">&#129380;</div>
+    <div id="btnPotW" class="tbtn" style="left:150px; bottom:100px; width:44px; height:44px; font-size:15px; background:rgba(220,220,220,.25);">&#129381;</div>
   </div>
   <div id="login">
     <h1>RUNE VALLEY</h1>
@@ -92,6 +95,8 @@
       <div class="cls sel" data-c="swordsman"><div class="icon">&#9876;&#65039;</div><div class="nm">Swordsman</div><div class="st">HP 120 · melee<br>tough &amp; steady</div></div>
       <div class="cls" data-c="archer"><div class="icon">&#127993;</div><div class="nm">Archer</div><div class="st">HP 90 · ranged<br>fast shooter</div></div>
       <div class="cls" data-c="mage"><div class="icon">&#128293;</div><div class="nm">Mage</div><div class="st">HP 80 · ranged<br>heavy magic</div></div>
+      <div class="cls" data-c="thief"><div class="icon">&#128481;&#65039;</div><div class="nm">Thief</div><div class="st">HP 110 · fastest<br>rapid daggers</div></div>
+      <div class="cls" data-c="merchant"><div class="icon">&#128176;</div><div class="nm">Merchant</div><div class="st">HP 130 · melee<br>+30% zeny gain</div></div>
     </div>
     <button id="playBtn">ENTER WORLD</button>
     <div id="loginMsg"></div>
@@ -118,7 +123,12 @@ let banner = null;                // {text, until}
 let roster = [];                  // all online players (from state)
 let showRank = false;             // TAB panel open
 let rankTop = [];                 // hall of fame from server
-const SKILL_KEYS = { swordsman: ['bash','whirl','warcry'], archer: ['dstrafe','arrowrain','snipe'], mage: ['firebolt','frostnova','meteor'] };
+const SKILL_KEYS = { swordsman: ['bash','whirl','warcry'], archer: ['dstrafe','arrowrain','snipe'], mage: ['firebolt','frostnova','meteor'], thief: ['dbl','backstab','shadow'], merchant: ['mammonite','cointoss','greed'] };
+let showShop = false;
+let shopRects = [];               // clickable areas of the shop panel
+let shopNote = null;              // {msg, ok, until}
+const SHOP_NPC = { x: 15.5 * 32, y: 5 * 32 };
+function clientInTown() { return me && me.x >= 8 * 32 && me.x <= 18 * 32 && me.y >= 3 * 32 && me.y <= 8 * 32; }
 const IS_TOUCH = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 let touchVec = { x: 0, y: 0 };
 let touchReady = false;
@@ -167,6 +177,12 @@ function setupTouch() {
     e.preventDefault();
     if (me) toggleRank();
   }, { passive: false });
+  document.getElementById('btnShop').addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (me) toggleShop();
+  }, { passive: false });
+  bindBtn('btnPotR', () => ws.send(JSON.stringify({ t:'pot', kind:'red' })));
+  bindBtn('btnPotW', () => ws.send(JSON.stringify({ t:'pot', kind:'white' })));
   document.getElementById('btnChat').addEventListener('touchstart', e => {
     e.preventDefault();
     if (!me) return;
@@ -175,8 +191,8 @@ function setupTouch() {
   }, { passive: false });
 }
 
-const CLS_SPEED = { swordsman:3.0, archer:3.2, mage:2.9 };
-const CLS_CD    = { swordsman:500, archer:650, mage:900 };
+const CLS_SPEED = { swordsman:3.0, archer:3.2, mage:2.9, thief:3.6, merchant:2.9 };
+const CLS_CD    = { swordsman:500, archer:650, mage:900, thief:380, merchant:550 };
 
 // ============ LOGIN ============
 let chosen = 'swordsman';
@@ -232,6 +248,7 @@ function onMsg(e) {
     return;
   }
   if (m.t === 'rank') { rankTop = m.top || []; return; }
+  if (m.t === 'shopnote') { shopNote = { msg: m.msg, ok: m.ok, until: Date.now() + 3500 }; log(m.msg, m.ok ? 'lvl' : 'sys'); return; }
   if (m.t === 's') {
     onlineCount = m.p.length;
     roster = m.p;
@@ -241,7 +258,7 @@ function onMsg(e) {
       if (p.id === myId) {
         // authoritative stats; keep local position prediction unless dead/teleported
         const dist = Math.hypot(p.x - me.x, p.y - me.y);
-        me.hp = p.hp; me.mh = p.mh; me.lv = p.lv; me.xp = p.xp; me.xn = p.xn; me.z = p.z; me.b = p.b;
+        me.hp = p.hp; me.mh = p.mh; me.lv = p.lv; me.xp = p.xp; me.xn = p.xn; me.z = p.z; me.b = p.b; me.eq = p.eq; me.po = p.po;
         if (p.dead !== me.dead || dist > 80) { me.x = p.x; me.y = p.y; }
         me.dead = p.dead;
       } else {
@@ -321,6 +338,10 @@ function handleEvent(m) {
       log(m.text, 'lvl');
       banner = { text: m.text, until: Date.now() + 5000 };
       break;
+    case 'heal': {
+      fx.push({ ty:'dmg', x: m.x, y: m.y - 26, val: '+' + m.amt, t: 0, col: '#7ee06a' });
+      break;
+    }
     case 'pkill': {
       const txt = '⚔️ ' + m.killer + ' has slain ' + m.victim + '!';
       log(txt, 'lvl');
@@ -345,7 +366,34 @@ function spawnSkillFx(m) {
     case 'firebolt':  fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:32,  col:'255,140,60' }); break;
     case 'frostnova': fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:115, col:'120,220,255' }); break;
     case 'meteor':    fx.push({ ty:'meteor', x:m.x, y:m.y, t:0 }); break;
+    case 'dbl':       fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:26,  col:'200,180,255' }); break;
+    case 'backstab':  fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:34,  col:'150,90,220' }); break;
+    case 'shadow':    fx.push({ ty:'poof', x:m.x, y:m.y, t:0 });
+                      fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:44,  col:'120,80,200' }); break;
+    case 'mammonite': fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:40,  col:'255,215,106' }); break;
+    case 'cointoss':  fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:26,  col:'255,230,140' }); break;
+    case 'greed':     fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:70,  col:'255,200,60' }); break;
   }
+}
+
+function toggleShop() {
+  if (!showShop && !clientInTown()) { log('Walk to the shop stall in town to open the shop (B)', 'sys'); return; }
+  showShop = !showShop;
+}
+
+function drawShopNPC() {
+  const x = SHOP_NPC.x, y = SHOP_NPC.y;
+  // stall awning
+  cx.fillStyle = '#8a4a3a'; cx.fillRect(x - 26, y - 44, 52, 6);
+  cx.fillStyle = '#c9a227'; cx.fillRect(x - 26, y - 38, 52, 4);
+  cx.fillStyle = '#5d4030'; cx.fillRect(x - 24, y - 34, 4, 30); cx.fillRect(x + 20, y - 34, 4, 30);
+  // counter
+  cx.fillStyle = '#7a5a3a'; cx.fillRect(x - 22, y - 8, 44, 10);
+  // NPC (mini merchant)
+  drawChar(x, y - 8, 'merchant', 'down', false, 0, '', 1, 1, 0, false, false, false);
+  cx.font = 'bold 10px Courier New'; cx.textAlign = 'center';
+  cx.fillStyle = 'rgba(0,0,0,.6)'; cx.fillText('SHOP [B]', x + 1, y - 49);
+  cx.fillStyle = '#ffd76a'; cx.fillText('SHOP [B]', x, y - 50);
 }
 
 function entPos(id) {
@@ -384,6 +432,10 @@ window.addEventListener('keydown', e => {
   if (e.key === 'Enter') { chatOpen = true; chatin.style.display = 'block'; setTimeout(() => chatin.focus(), 0); e.preventDefault(); return; }
   if (['1','2','3'].includes(e.key) && me && !me.dead) { ws.send(JSON.stringify({ t:'skill', n: +e.key })); return; }
   if (e.key === 'Tab') { e.preventDefault(); toggleRank(); return; }
+  if ((e.key === 'b' || e.key === 'B') && me) { toggleShop(); return; }
+  if (e.key === '4' && me && !me.dead) { ws.send(JSON.stringify({ t:'pot', kind:'red' })); return; }
+  if (e.key === '5' && me && !me.dead) { ws.send(JSON.stringify({ t:'pot', kind:'white' })); return; }
+  if (e.key === 'Escape' && showShop) { showShop = false; return; }
   keys[e.key.toLowerCase()] = true;
   if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(e.key.toLowerCase())) e.preventDefault();
 });
@@ -433,7 +485,9 @@ function updateMe() {
 const CLS_PAL = {
   swordsman: { tunic:'#c0392b', trim:'#8e2318', hair:'#6b4226', hat:null,      weapon:'sword' },
   archer:    { tunic:'#27ae60', trim:'#1a7a42', hair:'#c9a227', hat:'#1a7a42', weapon:'bow' },
-  mage:      { tunic:'#8e44ad', trim:'#5e2d78', hair:'#e8e8f0', hat:'#5e2d78', weapon:'staff' }
+  mage:      { tunic:'#8e44ad', trim:'#5e2d78', hair:'#e8e8f0', hat:'#5e2d78', weapon:'staff' },
+  thief:     { tunic:'#4a4458', trim:'#332e40', hair:'#8a5cc9', hat:'#332e40', weapon:'dagger' },
+  merchant:  { tunic:'#a9743c', trim:'#7c5228', hair:'#5c4020', hat:'#c9a227', weapon:'axe' }
 };
 const SKIN = '#f1c27d', SKIN_SH = '#d9a066';
 
@@ -486,19 +540,22 @@ function drawChar(x, y, cls, dir, moving, animT, name, hp, mh, lv, isMe, dead, b
   if (pal.weapon === 'sword') { P(sx, sy, 13, 8+oy, 1, 6, '#b8c4d0'); P(sx, sy, 12, 13+oy, 3, 1, '#8a6d3b'); }
   if (pal.weapon === 'bow') { P(sx, sy, 13, 8+oy, 1, 7, '#8a6d3b'); P(sx, sy, 14, 9+oy, 1, 5, '#d8d0c0'); }
   if (pal.weapon === 'staff') { P(sx, sy, 13, 6+oy, 1, 9, '#8a6d3b'); P(sx, sy, 12, 5+oy, 3, 2, '#66d9ff'); }
+  if (pal.weapon === 'dagger') { P(sx, sy, 13, 11+oy, 1, 3, '#d8dce4'); P(sx, sy, 13, 14+oy, 1, 1, '#8a6d3b'); }
+  if (pal.weapon === 'axe') { P(sx, sy, 13, 8+oy, 1, 7, '#8a6d3b'); P(sx, sy, 12, 8+oy, 3, 2, '#b8c4d0'); }
   cx.restore();
   cx.globalAlpha = 1;
 
-  // name + level
-  cx.font = 'bold 11px Courier New';
-  cx.textAlign = 'center';
-  cx.fillStyle = 'rgba(0,0,0,.6)';
-  const label = name + ' Lv' + lv;
-  cx.fillText(label, x + 1, y - 41);
-  cx.fillStyle = isMe ? '#ffd76a' : '#e8e4f5';
-  cx.fillText(label, x, y - 42);
-  // hp bar
-  drawBar(x - 14, y - 38, 28, 3, hp / mh, '#e74c3c');
+  // name + level (skipped for NPCs)
+  if (name) {
+    cx.font = 'bold 11px Courier New';
+    cx.textAlign = 'center';
+    cx.fillStyle = 'rgba(0,0,0,.6)';
+    const label = name + ' Lv' + lv;
+    cx.fillText(label, x + 1, y - 41);
+    cx.fillStyle = isMe ? '#ffd76a' : '#e8e4f5';
+    cx.fillText(label, x, y - 42);
+    drawBar(x - 14, y - 38, 28, 3, hp / mh, '#e74c3c');
+  }
 }
 
 function drawBar(x, y, w, h, ratio, col) {
@@ -749,6 +806,22 @@ function drawHud() {
 
   drawSkillBar();
   drawRankPanel();
+  drawShopPanel();
+
+  // potion counts (keys 4/5)
+  if (me.po) {
+    cx.textAlign = 'left'; cx.font = '11px Courier New';
+    cx.fillStyle = '#ff8080'; cx.fillText('[4] Red x' + me.po[0], 790, cv.height - 13);
+    cx.fillStyle = '#f0f0f0'; cx.fillText('[5] White x' + me.po[1], 870, cv.height - 13);
+  }
+  // gear display
+  if (me.eq) {
+    const wNames = ['-', 'Iron', 'Steel', 'Runic'], aNames = ['-', 'Leather', 'Chain', 'Runic'];
+    cx.fillStyle = '#a89bc9'; cx.font = '10px Courier New'; cx.textAlign = 'left';
+    const wTxt = me.eq[0] ? wNames[me.eq[0]] + '+' + me.eq[1] : 'no weapon';
+    const aTxt = me.eq[2] ? aNames[me.eq[2]] + '+' + me.eq[3] : 'no armor';
+    cx.fillText('W: ' + wTxt + '  A: ' + aTxt, 12, cv.height - 2);
+  }
 
   // boss announcement banner
   if (banner && Date.now() < banner.until) {
@@ -811,6 +884,105 @@ function drawRankPanel() {
   cx.fillText('press TAB to close', cv.width / 2, y0 + h - 8);
 }
 
+const SHOP_LIST = [
+  { item:'w1', label:'Iron Weapon      +5 atk', price:200 },
+  { item:'w2', label:'Steel Weapon    +12 atk', price:800 },
+  { item:'w3', label:'Runic Weapon    +25 atk', price:2500 },
+  { item:'a1', label:'Leather Armor   +40 HP', price:200 },
+  { item:'a2', label:'Chain Mail     +100 HP', price:800 },
+  { item:'a3', label:'Runic Plate    +220 HP', price:2500 },
+  { item:'red', label:'Red Potion    heal 80', price:15 },
+  { item:'white', label:'White Potion heal 300', price:60 }
+];
+
+function drawShopPanel() {
+  shopRects = [];
+  if (!showShop || !me) return;
+  const w = 480, x0 = (cv.width - w) / 2, y0 = 40, h = 470;
+  cx.fillStyle = 'rgba(12,8,22,.95)'; cx.fillRect(x0, y0, w, h);
+  cx.strokeStyle = '#c9a227'; cx.lineWidth = 2; cx.strokeRect(x0, y0, w, h);
+
+  cx.textAlign = 'center'; cx.font = 'bold 14px Courier New'; cx.fillStyle = '#ffd76a';
+  cx.fillText("~ NARA'S SHOP ~", cv.width / 2, y0 + 24);
+  cx.font = '11px Courier New'; cx.fillStyle = '#8fd8ff';
+  cx.fillText('Your zeny: ' + me.z + 'z', cv.width / 2, y0 + 42);
+
+  let y = y0 + 64;
+  cx.font = '11px Courier New';
+  for (const it of SHOP_LIST) {
+    cx.textAlign = 'left'; cx.fillStyle = '#e8e4f5';
+    cx.fillText(it.label, x0 + 20, y + 13);
+    cx.textAlign = 'right'; cx.fillStyle = '#ffd76a';
+    cx.fillText(it.price + 'z', x0 + w - 90, y + 13);
+    // BUY button
+    const bx = x0 + w - 76, bw = 56, bh = 20;
+    cx.fillStyle = me.z >= it.price ? '#2d5c3a' : '#3a3348';
+    cx.fillRect(bx, y, bw, bh);
+    cx.strokeStyle = '#5c8a6a'; cx.strokeRect(bx + .5, y + .5, bw - 1, bh - 1);
+    cx.textAlign = 'center'; cx.fillStyle = '#cfe8d5';
+    cx.fillText('BUY', bx + bw / 2, y + 14);
+    shopRects.push({ x: bx, y, w: bw, h: bh, act: 'buy', item: it.item });
+    y += 28;
+  }
+
+  // upgrade section
+  y += 8;
+  cx.textAlign = 'left'; cx.font = 'bold 11px Courier New'; cx.fillStyle = '#ff9a3c';
+  cx.fillText('UPGRADE (max +10, chance drops each level)', x0 + 20, y + 10);
+  y += 24;
+  const slots = [
+    { s: 'w', label: 'Weapon', tier: me.eq ? me.eq[0] : 0, plus: me.eq ? me.eq[1] : 0 },
+    { s: 'a', label: 'Armor',  tier: me.eq ? me.eq[2] : 0, plus: me.eq ? me.eq[3] : 0 }
+  ];
+  for (const sl of slots) {
+    const cost = Math.round(100 * Math.pow(1.6, sl.plus));
+    const chance = Math.round(Math.pow(0.8, sl.plus) * 100);
+    cx.textAlign = 'left'; cx.font = '11px Courier New'; cx.fillStyle = '#e8e4f5';
+    if (!sl.tier) cx.fillText(sl.label + ': none owned', x0 + 20, y + 13);
+    else if (sl.plus >= 10) cx.fillText(sl.label + ' +10 (MAX!)', x0 + 20, y + 13);
+    else cx.fillText(sl.label + ' +' + sl.plus + ' > +' + (sl.plus + 1) + '   ' + cost + 'z   ' + chance + '% chance', x0 + 20, y + 13);
+    if (sl.tier && sl.plus < 10) {
+      const bx = x0 + w - 96, bw = 76, bh = 20;
+      cx.fillStyle = me.z >= cost ? '#5c3a7a' : '#3a3348';
+      cx.fillRect(bx, y, bw, bh);
+      cx.strokeStyle = '#8a6ab0'; cx.strokeRect(bx + .5, y + .5, bw - 1, bh - 1);
+      cx.textAlign = 'center'; cx.fillStyle = '#e0d0f5';
+      cx.fillText('UPGRADE', bx + bw / 2, y + 14);
+      shopRects.push({ x: bx, y, w: bw, h: bh, act: 'upgrade', slot: sl.s });
+    }
+    y += 30;
+  }
+
+  // shop note + close
+  if (shopNote && Date.now() < shopNote.until) {
+    cx.textAlign = 'center'; cx.font = 'bold 11px Courier New';
+    cx.fillStyle = shopNote.ok ? '#7ee06a' : '#ff8080';
+    cx.fillText(shopNote.msg.slice(0, 60), cv.width / 2, y0 + h - 34);
+  }
+  cx.textAlign = 'center'; cx.font = '10px Courier New'; cx.fillStyle = '#6a6080';
+  cx.fillText('press B or ESC to close', cv.width / 2, y0 + h - 12);
+  // close X
+  const cxr = { x: x0 + w - 26, y: y0 + 6, w: 20, h: 20, act: 'close' };
+  cx.fillStyle = '#5c3a3a'; cx.fillRect(cxr.x, cxr.y, cxr.w, cxr.h);
+  cx.fillStyle = '#ffb0b0'; cx.font = 'bold 12px Courier New'; cx.fillText('X', cxr.x + 10, cxr.y + 14);
+  shopRects.push(cxr);
+}
+
+cv.addEventListener('pointerdown', e => {
+  if (!me || !showShop) return;
+  const r = cv.getBoundingClientRect();
+  const px = (e.clientX - r.left) * (cv.width / r.width);
+  const py = (e.clientY - r.top) * (cv.height / r.height);
+  for (const rc of shopRects) {
+    if (px >= rc.x && px <= rc.x + rc.w && py >= rc.y && py <= rc.y + rc.h) {
+      if (rc.act === 'close') { showShop = false; return; }
+      if (rc.act === 'buy') ws.send(JSON.stringify({ t:'shop', action:'buy', item: rc.item }));
+      if (rc.act === 'upgrade') ws.send(JSON.stringify({ t:'shop', action:'upgrade', slot: rc.slot }));
+      return;
+    }
+  }
+});
+
 function drawSkillBar() {
   if (!mySkills.length || !me) return;
   const bx = cv.width / 2 - 62, by = cv.height - 82;
@@ -867,6 +1039,8 @@ function frame() {
     const c = MAP[ty][tx];
     if (c === 't') { drawTile('.', tx, ty); } else drawTile(c, tx, ty);
   }
+
+  drawShopNPC();
 
   // entities sorted by y (painter's algorithm)
   const ents = [];
