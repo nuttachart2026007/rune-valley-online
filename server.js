@@ -460,6 +460,14 @@ wss.on('connection', (ws) => {
     }
 
     if (msg.t === 'skill') { useSkill(me, Number(msg.n) - 1); return; }
+    if (msg.t === 'rank') {
+      const top = Object.values(saves)
+        .sort((a, b) => b.level - a.level || b.zeny - a.zeny)
+        .slice(0, 10)
+        .map(r => ({ n: r.name, c: r.cls, lv: r.level, z: r.zeny }));
+      send(ws, { t: 'rank', top });
+      return;
+    }
     if (msg.t === 'chat') { handleChat(me, msg); return; }
   });
 

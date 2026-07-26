@@ -80,6 +80,7 @@
     <div id="btnS2" class="tbtn">2</div>
     <div id="btnS3" class="tbtn">3</div>
     <div id="btnChat" class="tbtn">&#128172;</div>
+    <div id="btnRank" class="tbtn" style="right:12px; top:12px; bottom:auto; width:42px; height:42px; font-size:16px;">&#127942;</div>
   </div>
   <div id="login">
     <h1>RUNE VALLEY</h1>
@@ -114,6 +115,9 @@ let onlineCount = 1;
 let mySkills = [];                // [{name,lvl,cd}] from server
 let skillCds = [0, 0, 0];         // ready-at timestamps
 let banner = null;                // {text, until}
+let roster = [];                  // all online players (from state)
+let showRank = false;             // TAB panel open
+let rankTop = [];                 // hall of fame from server
 const SKILL_KEYS = { swordsman: ['bash','whirl','warcry'], archer: ['dstrafe','arrowrain','snipe'], mage: ['firebolt','frostnova','meteor'] };
 const IS_TOUCH = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 let touchVec = { x: 0, y: 0 };
@@ -159,6 +163,10 @@ function setupTouch() {
   bindBtn('btnS1', () => ws.send(JSON.stringify({ t: 'skill', n: 1 })));
   bindBtn('btnS2', () => ws.send(JSON.stringify({ t: 'skill', n: 2 })));
   bindBtn('btnS3', () => ws.send(JSON.stringify({ t: 'skill', n: 3 })));
+  document.getElementById('btnRank').addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (me) toggleRank();
+  }, { passive: false });
   document.getElementById('btnChat').addEventListener('touchstart', e => {
     e.preventDefault();
     if (!me) return;
@@ -223,8 +231,10 @@ function onMsg(e) {
     try { localStorage.setItem('rvo_' + m.name.toLowerCase(), m.token); } catch {}
     return;
   }
+  if (m.t === 'rank') { rankTop = m.top || []; return; }
   if (m.t === 's') {
     onlineCount = m.p.length;
+    roster = m.p;
     const seenP = {}, seenM = {};
     for (const p of m.p) {
       seenP[p.id] = 1;
@@ -373,6 +383,7 @@ window.addEventListener('keydown', e => {
   }
   if (e.key === 'Enter') { chatOpen = true; chatin.style.display = 'block'; setTimeout(() => chatin.focus(), 0); e.preventDefault(); return; }
   if (['1','2','3'].includes(e.key) && me && !me.dead) { ws.send(JSON.stringify({ t:'skill', n: +e.key })); return; }
+  if (e.key === 'Tab') { e.preventDefault(); toggleRank(); return; }
   keys[e.key.toLowerCase()] = true;
   if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(e.key.toLowerCase())) e.preventDefault();
 });
@@ -737,6 +748,7 @@ function drawHud() {
   cx.fillText(onlineCount + ' online', 700, cv.height - 13);
 
   drawSkillBar();
+  drawRankPanel();
 
   // boss announcement banner
   if (banner && Date.now() < banner.until) {
@@ -753,6 +765,50 @@ function drawHud() {
     cx.font = '14px Courier New'; cx.fillStyle = '#e8e4f5';
     cx.fillText('Respawning in town...', cv.width / 2, cv.height / 2 + 18);
   }
+}
+
+function toggleRank() {
+  showRank = !showRank;
+  if (showRank && ws && ws.readyState === 1) ws.send(JSON.stringify({ t:'rank' }));
+}
+
+function drawRankPanel() {
+  if (!showRank) return;
+  const w = 460, x0 = (cv.width - w) / 2, y0 = 60;
+  const rows = Math.max(roster.length, 1) + rankTop.length + 6;
+  const h = Math.min(470, 70 + rows * 17);
+  cx.fillStyle = 'rgba(12,8,22,.93)'; cx.fillRect(x0, y0, w, h);
+  cx.strokeStyle = '#5c4a8a'; cx.lineWidth = 2; cx.strokeRect(x0, y0, w, h);
+
+  cx.textAlign = 'center'; cx.font = 'bold 14px Courier New'; cx.fillStyle = '#ffd76a';
+  cx.fillText('~ PLAYERS OF RUNE VALLEY ~', cv.width / 2, y0 + 22);
+
+  let y = y0 + 46;
+  cx.textAlign = 'left'; cx.font = 'bold 11px Courier New'; cx.fillStyle = '#8fd8ff';
+  cx.fillText('ONLINE NOW (' + roster.length + ')', x0 + 18, y);
+  y += 16;
+  cx.font = '11px Courier New';
+  const sorted = [...roster].sort((a, b) => b.lv - a.lv);
+  for (const p of sorted) {
+    if (y > y0 + h - 20) break;
+    cx.fillStyle = p.id === myId ? '#ffd76a' : '#e8e4f5';
+    const hpPct = Math.round(p.hp / p.mh * 100);
+    cx.fillText((p.id === myId ? '> ' : '  ') + p.n.padEnd(13) + ' Lv' + String(p.lv).padEnd(4) + p.c.padEnd(11) + 'HP ' + hpPct + '%' + (p.dead ? '  (dead)' : ''), x0 + 18, y);
+    y += 16;
+  }
+  y += 10;
+  cx.font = 'bold 11px Courier New'; cx.fillStyle = '#ff9a3c';
+  cx.fillText('HALL OF FAME - all-time top heroes', x0 + 18, y);
+  y += 16;
+  cx.font = '11px Courier New';
+  rankTop.forEach((r, i) => {
+    if (y > y0 + h - 8) return;
+    cx.fillStyle = i === 0 ? '#ffd76a' : i === 1 ? '#c8c8d8' : i === 2 ? '#d09a5a' : '#a89bc9';
+    cx.fillText('  #' + (i + 1) + ' ' + r.n.padEnd(13) + ' Lv' + String(r.lv).padEnd(4) + r.c.padEnd(11) + r.z + 'z', x0 + 18, y);
+    y += 16;
+  });
+  cx.textAlign = 'center'; cx.font = '10px Courier New'; cx.fillStyle = '#6a6080';
+  cx.fillText('press TAB to close', cv.width / 2, y0 + h - 8);
 }
 
 function drawSkillBar() {
