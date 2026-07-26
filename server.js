@@ -103,13 +103,13 @@ const SKILLS = {
 
 // ---------------- MONSTERS (v2: harder + aggressive) ----------------
 const MONSTER_TYPES = {
-  jelly:     { name: 'Jelly',       hp: 50,   atk: 5,  xp: 10,   zeny: 6,    speed: 0.8, aggro: 0,   lvl: 1  },
-  bluejelly: { name: 'Blue Jelly',  hp: 120,  atk: 12, xp: 30,   zeny: 18,   speed: 1.1, aggro: 120, lvl: 4  },
-  mushy:     { name: 'Mushy',       hp: 220,  atk: 20, xp: 60,   zeny: 40,   speed: 0.8, aggro: 140, lvl: 8  },
-  wolf:      { name: 'Dire Wolf',   hp: 450,  atk: 30, xp: 150,  zeny: 90,   speed: 1.7, aggro: 180, lvl: 12 },
-  skeleton:  { name: 'Skeleton',    hp: 650,  atk: 38, xp: 260,  zeny: 140,  speed: 1.4, aggro: 200, lvl: 16 },
-  ghoul:     { name: 'Ghoul',       hp: 950,  atk: 48, xp: 420,  zeny: 220,  speed: 1.1, aggro: 220, lvl: 20 },
-  direking:  { name: 'Gorehorn the Dire King', hp: 6000, atk: 70, xp: 3000, zeny: 2500, speed: 1.8, aggro: 280, lvl: 30, boss: true }
+  jelly:     { name: 'Jelly',       hp: 80,   atk: 8,  xp: 14,   zeny: 9,    speed: 0.9, aggro: 80,  lvl: 2  },
+  bluejelly: { name: 'Blue Jelly',  hp: 180,  atk: 18, xp: 45,   zeny: 26,   speed: 1.2, aggro: 150, lvl: 6  },
+  mushy:     { name: 'Mushy',       hp: 330,  atk: 30, xp: 90,   zeny: 60,   speed: 0.9, aggro: 170, lvl: 10 },
+  wolf:      { name: 'Dire Wolf',   hp: 680,  atk: 45, xp: 220,  zeny: 135,  speed: 1.9, aggro: 220, lvl: 15 },
+  skeleton:  { name: 'Skeleton',    hp: 950,  atk: 55, xp: 380,  zeny: 210,  speed: 1.5, aggro: 240, lvl: 20 },
+  ghoul:     { name: 'Ghoul',       hp: 1400, atk: 70, xp: 600,  zeny: 330,  speed: 1.2, aggro: 260, lvl: 25 },
+  direking:  { name: 'Gorehorn the Dire King', hp: 9000, atk: 100, xp: 4500, zeny: 4000, speed: 1.9, aggro: 320, lvl: 40, boss: true }
 };
 const SPAWN_ZONES = [
   ['jelly',     8, 20, 2,  48, 10],
