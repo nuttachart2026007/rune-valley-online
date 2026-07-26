@@ -204,7 +204,8 @@ function makePlayer(ws, name, cls, pinHash, restore) {
     hp: st.maxHp, maxHp: st.maxHp, atk: st.atk,
     level, xp: restore ? restore.xp : 0, zeny: restore ? restore.zeny : 0,
     lastAtk: 0, skillCd: [0, 0, 0], buffUntil: 0,
-    dead: false, respawnAt: 0, lastMoveMsg: Date.now()
+    dead: false, respawnAt: 0, lastMoveMsg: Date.now(),
+    protectUntil: Date.now() + 4000
   };
 }
 
@@ -280,6 +281,51 @@ function nearestMonster(x, y, maxR) {
   return (best && bd <= maxR) ? best : null;
 }
 
+// ---------------- PVP (players can fight each other everywhere) ----------------
+function pvpTargetable(v, attacker) {
+  return v && !v.dead && v.id !== attacker.id && Date.now() >= v.protectUntil;
+}
+function playersInRange(attacker, x, y, r) {
+  const out = [];
+  for (const id in players) {
+    const v = players[id];
+    if (pvpTargetable(v, attacker) && Math.hypot(v.x - x, v.y - y) <= r) out.push(v);
+  }
+  return out;
+}
+function nearestAny(attacker, maxR) {
+  const m = nearestMonster(attacker.x, attacker.y, maxR);
+  let bestP = null, bd = Infinity;
+  for (const id in players) {
+    const v = players[id];
+    if (!pvpTargetable(v, attacker)) continue;
+    const d = Math.hypot(v.x - attacker.x, v.y - attacker.y);
+    if (d < bd) { bd = d; bestP = v; }
+  }
+  if (bestP && bd <= maxR) {
+    if (!m || bd < Math.hypot(m.x - attacker.x, m.y - attacker.y)) return { p: bestP };
+  }
+  return m ? { m } : null;
+}
+function hitPlayer(a, v, dmg) {
+  if (!pvpTargetable(v, a)) return;
+  dmg = Math.max(1, Math.floor(dmg * 0.6)); // PvP damage reduction
+  v.hp -= dmg;
+  broadcast({ t: 'event', kind: 'hit', from: a.id, target: v.id, dmg, tx: Math.round(v.x), ty: Math.round(v.y), cls: a.cls });
+  if (v.hp <= 0) {
+    v.dead = true;
+    v.respawnAt = Date.now() + 3000;
+    v.moving = false;
+    broadcast({ t: 'event', kind: 'pkill', killer: a.name, victim: v.name, kid: a.id, vid: v.id });
+    grantXp(a, 15 + v.level * 5);
+  }
+}
+function hitAny(a, tgt, dmg) {
+  if (tgt.m) hitMonster(a, tgt.m, dmg);
+  else if (tgt.p) hitPlayer(a, tgt.p, dmg);
+}
+function tgtPos(tgt) { return tgt.m ? tgt.m : tgt.p; }
+
 function useSkill(p, n) {
   const defs = SKILLS[p.cls];
   if (!defs || n < 0 || n > 2) return;
@@ -292,46 +338,47 @@ function useSkill(p, n) {
   let fx = { t: 'event', kind: 'skillfx', id: p.id, skill: def.key, x: Math.round(p.x), y: Math.round(p.y) };
   let used = false;
 
+  const aoe = (cx0, cy0, r, mult, slow) => {
+    const ms = monstersInRange(cx0, cy0, r);
+    const ps = playersInRange(p, cx0, cy0, r);
+    ms.forEach(m => { hitMonster(p, m, dmgRoll(p, mult)); if (slow) m.slowUntil = now + 4000; });
+    ps.forEach(v => hitPlayer(p, v, dmgRoll(p, mult)));
+    return ms.length + ps.length > 0;
+  };
+
   if (def.key === 'bash') {
-    const m = nearestMonster(p.x, p.y, c.range + 16);
-    if (m) { fx.x = Math.round(m.x); fx.y = Math.round(m.y); hitMonster(p, m, dmgRoll(p, 3)); used = true; }
+    const t = nearestAny(p, c.range + 16);
+    if (t) { const o = tgtPos(t); fx.x = Math.round(o.x); fx.y = Math.round(o.y); hitAny(p, t, dmgRoll(p, 3)); used = true; }
   } else if (def.key === 'whirl') {
-    const list = monstersInRange(p.x, p.y, 90);
-    if (list.length) { list.forEach(m => hitMonster(p, m, dmgRoll(p, 2))); used = true; }
+    used = aoe(p.x, p.y, 90, 2, false);
   } else if (def.key === 'warcry') {
     p.buffUntil = now + 8000;
     used = true;
   } else if (def.key === 'dstrafe') {
-    const m = nearestMonster(p.x, p.y, c.range + 16);
-    if (m) { fx.x = Math.round(m.x); fx.y = Math.round(m.y); hitMonster(p, m, dmgRoll(p, 1.5)); if (!m.dead) hitMonster(p, m, dmgRoll(p, 1.5)); used = true; }
+    const t = nearestAny(p, c.range + 16);
+    if (t) { const o = tgtPos(t); fx.x = Math.round(o.x); fx.y = Math.round(o.y); hitAny(p, t, dmgRoll(p, 1.5)); hitAny(p, t, dmgRoll(p, 1.5)); used = true; }
   } else if (def.key === 'arrowrain') {
-    const m = nearestMonster(p.x, p.y, c.range + 40);
-    const cx0 = m ? m.x : p.x, cy0 = m ? m.y : p.y;
-    const list = monstersInRange(cx0, cy0, 95);
-    fx.x = Math.round(cx0); fx.y = Math.round(cy0);
-    if (list.length) { list.forEach(mm => hitMonster(p, mm, dmgRoll(p, 1.5))); used = true; }
+    const t = nearestAny(p, c.range + 40);
+    const o = t ? tgtPos(t) : p;
+    fx.x = Math.round(o.x); fx.y = Math.round(o.y);
+    used = aoe(o.x, o.y, 95, 1.5, false);
   } else if (def.key === 'snipe') {
-    const m = nearestMonster(p.x, p.y, 270);
-    if (m) { fx.x = Math.round(m.x); fx.y = Math.round(m.y); hitMonster(p, m, dmgRoll(p, 5)); used = true; }
+    const t = nearestAny(p, 270);
+    if (t) { const o = tgtPos(t); fx.x = Math.round(o.x); fx.y = Math.round(o.y); hitAny(p, t, dmgRoll(p, 5)); used = true; }
   } else if (def.key === 'firebolt') {
-    const m = nearestMonster(p.x, p.y, c.range + 16);
-    if (m) {
-      fx.x = Math.round(m.x); fx.y = Math.round(m.y);
-      for (let i = 0; i < 3 && !m.dead; i++) hitMonster(p, m, dmgRoll(p, 1.2));
+    const t = nearestAny(p, c.range + 16);
+    if (t) {
+      const o = tgtPos(t); fx.x = Math.round(o.x); fx.y = Math.round(o.y);
+      for (let i = 0; i < 3; i++) hitAny(p, t, dmgRoll(p, 1.2));
       used = true;
     }
   } else if (def.key === 'frostnova') {
-    const list = monstersInRange(p.x, p.y, 115);
-    if (list.length) {
-      list.forEach(m => { hitMonster(p, m, dmgRoll(p, 1.5)); m.slowUntil = now + 4000; });
-      used = true;
-    }
+    used = aoe(p.x, p.y, 115, 1.5, true);
   } else if (def.key === 'meteor') {
-    const m = nearestMonster(p.x, p.y, 270);
-    const cx0 = m ? m.x : p.x, cy0 = m ? m.y : p.y;
-    fx.x = Math.round(cx0); fx.y = Math.round(cy0);
-    const list = monstersInRange(cx0, cy0, 125);
-    if (list.length) { list.forEach(mm => hitMonster(p, mm, dmgRoll(p, 3.5))); used = true; }
+    const t = nearestAny(p, 270);
+    const o = t ? tgtPos(t) : p;
+    fx.x = Math.round(o.x); fx.y = Math.round(o.y);
+    used = aoe(o.x, o.y, 125, 3.5, false);
   }
 
   if (used || def.key === 'warcry') {
@@ -407,8 +454,8 @@ wss.on('connection', (ws) => {
       if (now - me.lastAtk < c.cooldown) return;
       me.lastAtk = now;
       broadcast({ t: 'event', kind: 'swing', id: me.id, cls: me.cls, dir: me.dir });
-      const m = nearestMonster(me.x, me.y, c.range + 16);
-      if (m) hitMonster(me, m, dmgRoll(me, 1));
+      const t = nearestAny(me, c.range + 16);
+      if (t) hitAny(me, t, dmgRoll(me, 1));
       return;
     }
 
@@ -525,6 +572,7 @@ setInterval(() => {
       p.dead = false;
       p.hp = p.maxHp;
       p.x = SPAWN.x; p.y = SPAWN.y;
+      p.protectUntil = now + 4000; // brief PvP protection after respawn
       broadcast({ t: 'event', kind: 'respawn', id: p.id });
     }
     if (!p.dead && p.hp < p.maxHp && now % 3000 < 120) p.hp = Math.min(p.maxHp, p.hp + 2 + Math.floor(p.level / 2));

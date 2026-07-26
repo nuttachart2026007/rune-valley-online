@@ -311,6 +311,15 @@ function handleEvent(m) {
       log(m.text, 'lvl');
       banner = { text: m.text, until: Date.now() + 5000 };
       break;
+    case 'pkill': {
+      const txt = '⚔️ ' + m.killer + ' has slain ' + m.victim + '!';
+      log(txt, 'lvl');
+      banner = { text: txt, until: Date.now() + 4000 };
+      const pos = entPos(m.vid);
+      if (pos) fx.push({ ty:'poof', x: pos.x, y: pos.y, t: 0 });
+      if (m.vid === myId) log('Revenge time... respawning in town', 'sys');
+      break;
+    }
   }
 }
 
