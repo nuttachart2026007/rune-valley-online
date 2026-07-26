@@ -49,11 +49,13 @@
   <canvas id="game" width="960" height="600"></canvas>
   <div id="chatlog"></div>
   <input id="chatin" maxlength="120" placeholder="Say something... (Enter to send, Esc to close)">
-  <div id="hint">WASD / Arrows — move<br>SPACE — attack<br>ENTER — chat</div>
+  <div id="hint">WASD / Arrows — move<br>SPACE — attack<br>1 / 2 / 3 — skills<br>ENTER — chat</div>
   <div id="login">
     <h1>RUNE VALLEY</h1>
     <h2>~ ONLINE ~ a pixel adventure with friends ~</h2>
     <input id="nameIn" maxlength="12" placeholder="Your hero name">
+    <input id="pinIn" maxlength="4" inputmode="numeric" placeholder="4-digit PIN" style="margin-top:10px; width:180px; letter-spacing:6px; text-align:center;">
+    <div style="color:#8a7db0; font-size:10px; margin-top:6px;">PIN protects your hero &mdash; same name + PIN = continue your save</div>
     <div id="classes">
       <div class="cls sel" data-c="swordsman"><div class="icon">&#9876;&#65039;</div><div class="nm">Swordsman</div><div class="st">HP 120 · melee<br>tough &amp; steady</div></div>
       <div class="cls" data-c="archer"><div class="icon">&#127993;</div><div class="nm">Archer</div><div class="st">HP 90 · ranged<br>fast shooter</div></div>
@@ -78,6 +80,10 @@ const fx = [];                    // effects: dmg numbers, projectiles, flashes
 const bubbles = {};               // id -> {text, until}
 let keys = {}, lastAtkSent = 0, camX = 0, camY = 0, tick = 0;
 let onlineCount = 1;
+let mySkills = [];                // [{name,lvl,cd}] from server
+let skillCds = [0, 0, 0];         // ready-at timestamps
+let banner = null;                // {text, until}
+const SKILL_KEYS = { swordsman: ['bash','whirl','warcry'], archer: ['dstrafe','arrowrain','snipe'], mage: ['firebolt','frostnova','meteor'] };
 
 const CLS_SPEED = { swordsman:3.0, archer:3.2, mage:2.9 };
 const CLS_CD    = { swordsman:500, archer:650, mage:900 };
@@ -90,15 +96,22 @@ document.querySelectorAll('.cls').forEach(el => el.onclick = () => {
 });
 document.getElementById('playBtn').onclick = join;
 document.getElementById('nameIn').addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
+document.getElementById('pinIn').addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
 
+let suppressCloseMsg = false;
 function join() {
   const name = document.getElementById('nameIn').value.trim();
+  const pin = document.getElementById('pinIn').value.trim();
   if (!name) { document.getElementById('loginMsg').textContent = 'Please enter a hero name'; return; }
+  if (!/^\d{4}$/.test(pin)) { document.getElementById('loginMsg').textContent = 'PIN must be exactly 4 digits'; return; }
+  let token = null;
+  try { token = localStorage.getItem('rvo_' + name.toLowerCase()); } catch {}
+  suppressCloseMsg = false;
   const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
   ws = new WebSocket(proto + location.host);
-  ws.onopen = () => ws.send(JSON.stringify({ t:'join', name, cls: chosen }));
+  ws.onopen = () => ws.send(JSON.stringify({ t:'join', name, cls: chosen, pin, token }));
   ws.onmessage = onMsg;
-  ws.onclose = () => { document.getElementById('loginMsg').textContent = 'Disconnected from server'; document.getElementById('login').style.display = 'flex'; me = null; };
+  ws.onclose = () => { if (!suppressCloseMsg) document.getElementById('loginMsg').textContent = 'Disconnected from server'; document.getElementById('login').style.display = 'flex'; me = null; };
   ws.onerror = () => { document.getElementById('loginMsg').textContent = 'Cannot reach server'; };
 }
 
@@ -109,9 +122,22 @@ function onMsg(e) {
     myId = m.id; TILE = m.tile;
     MAP = m.map.map(r => r.split('')); MH = MAP.length; MW = MAP[0].length;
     me = { ...m.you, x: m.you.x, y: m.you.y, dir:'down', moving:false };
+    mySkills = m.skills || [];
+    skillCds = [0, 0, 0];
     document.getElementById('login').style.display = 'none';
-    log('Welcome to Rune Valley, ' + me.n + '!', 'sys');
+    if (m.restored) log('Welcome back, ' + me.n + '! Lv' + me.lv + ' ' + me.c + ' restored.', 'lvl');
+    else log('Welcome to Rune Valley, ' + me.n + '! Remember your PIN.', 'sys');
     requestAnimationFrame(frame);
+    return;
+  }
+  if (m.t === 'joinError') {
+    suppressCloseMsg = true;
+    document.getElementById('loginMsg').textContent = m.msg;
+    try { ws.close(); } catch {}
+    return;
+  }
+  if (m.t === 'save') {
+    try { localStorage.setItem('rvo_' + m.name.toLowerCase(), m.token); } catch {}
     return;
   }
   if (m.t === 's') {
@@ -122,7 +148,7 @@ function onMsg(e) {
       if (p.id === myId) {
         // authoritative stats; keep local position prediction unless dead/teleported
         const dist = Math.hypot(p.x - me.x, p.y - me.y);
-        me.hp = p.hp; me.mh = p.mh; me.lv = p.lv; me.xp = p.xp; me.xn = p.xn; me.z = p.z;
+        me.hp = p.hp; me.mh = p.mh; me.lv = p.lv; me.xp = p.xp; me.xn = p.xn; me.z = p.z; me.b = p.b;
         if (p.dead !== me.dead || dist > 80) { me.x = p.x; me.y = p.y; }
         me.dead = p.dead;
       } else {
@@ -187,6 +213,36 @@ function handleEvent(m) {
       break;
     }
     case 'respawn': break;
+    case 'skillfx': {
+      if (m.id === myId && me) {
+        const idx = (SKILL_KEYS[me.c] || []).indexOf(m.skill);
+        if (idx >= 0 && mySkills[idx]) skillCds[idx] = Date.now() + mySkills[idx].cd;
+      }
+      spawnSkillFx(m);
+      break;
+    }
+    case 'stomp':
+      fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:100, col:'255,80,80' });
+      break;
+    case 'boss':
+      log(m.text, 'lvl');
+      banner = { text: m.text, until: Date.now() + 5000 };
+      break;
+  }
+}
+
+function spawnSkillFx(m) {
+  switch (m.skill) {
+    case 'bash':      fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:32,  col:'255,255,255' }); break;
+    case 'whirl':     fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:90,  col:'220,220,255' }); break;
+    case 'warcry':    fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:60,  col:'255,215,106' }); break;
+    case 'dstrafe':   fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:28,  col:'180,255,180' }); break;
+    case 'arrowrain': fx.push({ ty:'rain', x:m.x, y:m.y, t:0 });
+                      fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:95,  col:'150,230,130' }); break;
+    case 'snipe':     fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:36,  col:'255,240,150' }); break;
+    case 'firebolt':  fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:32,  col:'255,140,60' }); break;
+    case 'frostnova': fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:115, col:'120,220,255' }); break;
+    case 'meteor':    fx.push({ ty:'meteor', x:m.x, y:m.y, t:0 }); break;
   }
 }
 
@@ -224,6 +280,7 @@ window.addEventListener('keydown', e => {
     return;
   }
   if (e.key === 'Enter') { chatOpen = true; chatin.style.display = 'block'; setTimeout(() => chatin.focus(), 0); e.preventDefault(); return; }
+  if (['1','2','3'].includes(e.key) && me && !me.dead) { ws.send(JSON.stringify({ t:'skill', n: +e.key })); return; }
   keys[e.key.toLowerCase()] = true;
   if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(e.key.toLowerCase())) e.preventDefault();
 });
@@ -277,13 +334,18 @@ const SKIN = '#f1c27d', SKIN_SH = '#d9a066';
 function P(sx, sy, x, y, w, h, col) { cx.fillStyle = col; cx.fillRect(sx + x*2, sy + y*2, w*2, h*2); }
 
 // character sprite ~16x20 units, anchored bottom-center
-function drawChar(x, y, cls, dir, moving, animT, name, hp, mh, lv, isMe, dead) {
+function drawChar(x, y, cls, dir, moving, animT, name, hp, mh, lv, isMe, dead, buffed) {
   const pal = CLS_PAL[cls] || CLS_PAL.swordsman;
   const sx = Math.round(x - 16), sy = Math.round(y - 36);
   const step = moving ? (Math.floor(animT / 8) % 2 === 0 ? 1 : -1) : 0;
   const bob = moving ? (Math.floor(animT / 8) % 2) : 0;
 
   if (dead) { cx.globalAlpha = 0.45; }
+  // war cry aura
+  if (buffed && !dead) {
+    cx.fillStyle = 'rgba(255,215,106,' + (0.18 + 0.1 * Math.sin(animT / 5)) + ')';
+    cx.beginPath(); cx.ellipse(x, y - 12, 20, 26, 0, 0, 7); cx.fill();
+  }
   // shadow
   cx.fillStyle = 'rgba(0,0,0,.3)';
   cx.beginPath(); cx.ellipse(x, y + 2, 10, 4, 0, 0, 7); cx.fill();
@@ -364,6 +426,39 @@ function drawMob(mo, animT) {
     cx.fillStyle = '#fff';
     cx.fillRect(x - 8, y - 17, 4, 3); cx.fillRect(x + 4, y - 15, 3, 3);
     cx.fillStyle = '#2a2030'; cx.fillRect(x - 4, y - 7, 2, 3); cx.fillRect(x + 2, y - 7, 2, 3);
+  } else if (t.ty === 'skeleton') {
+    cx.fillStyle = '#e8e4da';
+    cx.fillRect(x - 4, y - 22, 8, 8);                                  // skull
+    cx.fillRect(x - 6, y - 13, 12, 8);                                 // ribs
+    cx.fillStyle = '#c9c4b8';
+    cx.fillRect(x - 6, y - 5, 3, 5); cx.fillRect(x + 3, y - 5, 3, 5);  // legs
+    cx.fillRect(x - 9, y - 13, 3, 7); cx.fillRect(x + 6, y - 13, 3, 7);// arms
+    cx.fillStyle = '#1a1423';
+    cx.fillRect(x - 3, y - 20, 2, 3); cx.fillRect(x + 1, y - 20, 2, 3);// eye sockets
+  } else if (t.ty === 'ghoul') {
+    cx.fillStyle = '#7aa05a';
+    cx.fillRect(x - 6, y - 24, 12, 10);                                // head
+    cx.fillRect(x - 8, y - 14, 16, 10);                                // body
+    cx.fillStyle = '#5c7a42';
+    cx.fillRect(x - 8, y - 4, 4, 4); cx.fillRect(x + 4, y - 4, 4, 4);  // legs
+    cx.fillRect(x - 12, y - 14, 4, 8); cx.fillRect(x + 8, y - 14, 4, 8);// arms
+    cx.fillStyle = '#ff5050';
+    cx.fillRect(x - 4, y - 21, 2, 3); cx.fillRect(x + 2, y - 21, 2, 3);// eyes
+  } else if (t.ty === 'direking') {
+    cx.fillStyle = '#3d3348';
+    cx.fillRect(x - 26, y - 24, 44, 18);                               // body
+    cx.fillRect(x + 14, y - 34, 18, 16);                               // head
+    cx.fillStyle = '#2a2333';
+    cx.fillRect(x + 18, y - 42, 4, 8); cx.fillRect(x + 26, y - 42, 4, 8); // horns
+    cx.fillRect(x - 26, y - 6, 6, 6); cx.fillRect(x - 12, y - 6, 6, 6);
+    cx.fillRect(x + 2, y - 6, 6, 6); cx.fillRect(x + 14, y - 6, 6, 6); // legs
+    cx.fillRect(x - 36, y - 24, 12, 5);                                // tail
+    cx.fillStyle = '#ffd76a'; cx.fillRect(x + 16, y - 37, 14, 3);      // crown
+    cx.fillStyle = '#ff3030'; cx.fillRect(x + 24, y - 30, 3, 3);       // eye
+    cx.font = 'bold 11px Courier New'; cx.textAlign = 'center';
+    cx.fillStyle = 'rgba(0,0,0,.7)'; cx.fillText('GOREHORN', x + 1, y - 47);
+    cx.fillStyle = '#ff9a3c'; cx.fillText('GOREHORN', x, y - 48);
+    drawBar(x - 30, y - 44, 60, 4, t.hp / t.mh, '#ff5050');
   } else if (t.ty === 'wolf') {
     cx.fillStyle = '#6b7280';
     cx.fillRect(x - 13, y - 12, 22, 9);                                  // body
@@ -376,8 +471,8 @@ function drawMob(mo, animT) {
     cx.fillStyle = t.tg ? '#ff5050' : '#e8e4f5';
     cx.fillRect(x + 12, y - 15, 2, 2);                                   // eye
   }
-  // hp bar + name if hurt or targeting
-  if (t.hp < t.mh || t.tg) {
+  // hp bar + name if hurt or targeting (boss has its own big bar)
+  if (t.ty !== 'direking' && (t.hp < t.mh || t.tg)) {
     drawBar(x - 12, y - 26, 24, 3, t.hp / t.mh, t.tg ? '#ff5050' : '#7ee06a');
   }
 }
@@ -393,6 +488,7 @@ function tileColor(c, tx, ty) {
     case 's': return '#8a8598';
     case 't': return '#3a7030';
     case 'f': return '#4a8f3c';
+    case 'c': return v < 2 ? '#3a3346' : '#413a50';
   }
   return '#4a8f3c';
 }
@@ -427,6 +523,11 @@ function drawTile(c, tx, ty) {
     cx.fillStyle = 'rgba(0,0,0,.08)';
     if (v === 2) cx.fillRect(x + 6, y + 12, 5, 4);
     if (v === 4) cx.fillRect(x + 20, y + 20, 5, 4);
+  } else if (c === 'c') {
+    cx.fillStyle = 'rgba(255,255,255,.05)';
+    if (v === 2) cx.fillRect(x + 8, y + 14, 5, 3);
+    if (v === 5) cx.fillRect(x + 20, y + 6, 4, 3);
+    if (v === 3) { cx.fillStyle = 'rgba(0,0,0,.2)'; cx.fillRect(x + 14, y + 20, 6, 4); }
   } else if (c === 'f') {
     const cols = ['#ff8fb0', '#ffd76a', '#c491f0'];
     cx.fillStyle = cols[v % 3];
@@ -486,6 +587,31 @@ function drawFx() {
       if (f.t > 35) fx.splice(i, 1);
     } else if (f.ty === 'flash') {
       if (f.t > 3) fx.splice(i, 1);
+    } else if (f.ty === 'ring') {
+      const a = f.t / 22;
+      cx.strokeStyle = 'rgba(' + f.col + ',' + Math.max(0, 1 - a) + ')';
+      cx.lineWidth = 3;
+      cx.beginPath(); cx.arc(f.x, f.y, Math.max(2, f.max * Math.min(1, a * 1.2)), 0, 7); cx.stroke();
+      if (f.t > 22) fx.splice(i, 1);
+    } else if (f.ty === 'meteor') {
+      if (f.t < 14) {
+        const px = f.x + (14 - f.t) * 4, py = f.y - (14 - f.t) * 14;
+        cx.fillStyle = 'rgba(255,160,60,.4)'; cx.beginPath(); cx.arc(px, py, 13, 0, 7); cx.fill();
+        cx.fillStyle = '#ff7a3c'; cx.beginPath(); cx.arc(px, py, 8, 0, 7); cx.fill();
+      } else if (f.t === 14) {
+        fx.push({ ty:'ring', x: f.x, y: f.y, t: 0, max: 125, col: '255,140,60' });
+        fx.push({ ty:'poof', x: f.x, y: f.y, t: 0 });
+      }
+      if (f.t > 14) fx.splice(i, 1);
+    } else if (f.ty === 'rain') {
+      const a = f.t / 20;
+      cx.strokeStyle = 'rgba(230,220,170,' + Math.max(0, 1 - a) + ')';
+      cx.lineWidth = 2;
+      for (let k = 0; k < 6; k++) {
+        const ox = ((k * 37) % 90) - 45, oy = -60 + f.t * 4 + (k * 13) % 20;
+        cx.beginPath(); cx.moveTo(f.x + ox, f.y + oy); cx.lineTo(f.x + ox + 3, f.y + oy + 10); cx.stroke();
+      }
+      if (f.t > 20) fx.splice(i, 1);
     }
   }
 }
@@ -514,6 +640,15 @@ function drawHud() {
   cx.fillStyle = '#8fd8ff';
   cx.fillText(onlineCount + ' online', 700, cv.height - 13);
 
+  drawSkillBar();
+
+  // boss announcement banner
+  if (banner && Date.now() < banner.until) {
+    cx.font = 'bold 17px Courier New'; cx.textAlign = 'center';
+    cx.fillStyle = 'rgba(0,0,0,.75)'; cx.fillText(banner.text, cv.width / 2 + 1, 61);
+    cx.fillStyle = '#ff9a3c'; cx.fillText(banner.text, cv.width / 2, 60);
+  }
+
   if (me.dead) {
     cx.fillStyle = 'rgba(20,5,10,.55)'; cx.fillRect(0, 0, cv.width, cv.height);
     cx.font = 'bold 28px Courier New'; cx.textAlign = 'center';
@@ -521,6 +656,36 @@ function drawHud() {
     cx.fillText('You were defeated...', cv.width / 2, cv.height / 2 - 10);
     cx.font = '14px Courier New'; cx.fillStyle = '#e8e4f5';
     cx.fillText('Respawning in town...', cv.width / 2, cv.height / 2 + 18);
+  }
+}
+
+function drawSkillBar() {
+  if (!mySkills.length || !me) return;
+  const bx = cv.width / 2 - 62, by = cv.height - 82;
+  for (let i = 0; i < 3; i++) {
+    const def = mySkills[i]; if (!def) continue;
+    const x = bx + i * 44;
+    cx.fillStyle = 'rgba(12,8,22,.8)'; cx.fillRect(x, by, 40, 40);
+    cx.strokeStyle = '#4a3f66'; cx.strokeRect(x + .5, by + .5, 39, 39);
+    const unlocked = me.lv >= def.lvl;
+    cx.textAlign = 'center';
+    if (unlocked) {
+      cx.font = '9px Courier New'; cx.fillStyle = '#ffd76a';
+      cx.fillText(def.name.split(' ')[0].slice(0, 7), x + 20, by + 18);
+      const rem = skillCds[i] - Date.now();
+      if (rem > 0) {
+        const frac = Math.min(1, rem / def.cd);
+        cx.fillStyle = 'rgba(0,0,0,.68)';
+        cx.fillRect(x, by + 40 * (1 - frac), 40, 40 * frac);
+        cx.font = 'bold 11px Courier New'; cx.fillStyle = '#fff';
+        cx.fillText(Math.ceil(rem / 1000) + 's', x + 20, by + 32);
+      }
+    } else {
+      cx.font = '9px Courier New'; cx.fillStyle = '#6a6080';
+      cx.fillText('Lv' + def.lvl, x + 20, by + 24);
+    }
+    cx.font = 'bold 10px Courier New'; cx.fillStyle = '#8fd8ff';
+    cx.fillText(String(i + 1), x + 7, by + 11);
   }
 }
 
@@ -556,9 +721,9 @@ function frame() {
   for (const id in mobs) ents.push({ y: mobs[id].cur.y, draw: () => drawMob(mobs[id], tick) });
   for (const id in others) {
     const o = others[id]; const t = o.tgt; if (!t) continue;
-    ents.push({ y: o.cur.y, draw: () => { drawChar(o.cur.x, o.cur.y, t.c, t.d, t.mv, o.anim, t.n, t.hp, t.mh, t.lv, false, t.dead); drawBubble(id, o.cur.x, o.cur.y); } });
+    ents.push({ y: o.cur.y, draw: () => { drawChar(o.cur.x, o.cur.y, t.c, t.d, t.mv, o.anim, t.n, t.hp, t.mh, t.lv, false, t.dead, t.b); drawBubble(id, o.cur.x, o.cur.y); } });
   }
-  ents.push({ y: me.y, draw: () => { drawChar(me.x, me.y, me.c, me.dir, me.moving, tick, me.n, me.hp, me.mh, me.lv, true, me.dead); drawBubble(myId, me.x, me.y); } });
+  ents.push({ y: me.y, draw: () => { drawChar(me.x, me.y, me.c, me.dir, me.moving, tick, me.n, me.hp, me.mh, me.lv, true, me.dead, me.b); drawBubble(myId, me.x, me.y); } });
   // trees drawn on top of ground but below entities standing lower — draw canopy after entities for simple depth
   ents.sort((a, b) => a.y - b.y).forEach(e => e.draw());
 
