@@ -165,12 +165,19 @@ const TIER_NAMES_C = {
   w: ['-','Iron','Steel','Runic','Valkyrie','Celestial'],
   a: ['-','Leather','Chain','Runic','Valkyrie','Celestial'],
   s: ['-','Buckler','Kite','Tower','Valkyrie','Celestial'],
-  x: ['-','Ring','Amulet','Talisman','Relic','Celestial']
+  x: ['-','Ring','Amulet','Talisman','Relic','Celestial'],
+  h: ['-','Cap','Helm','Circlet','Valkyrie','Celestial'],
+  b: ['-','Sandals','Boots','Greaves','Valkyrie','Celestial']
 };
-const KIND_NAMES_C = { w:'Weapon', a:'Armor', s:'Shield', x:'Accessory' };
-const KIND_STAT = { w:'+atk', a:'+HP', s:'+block', x:'+dmg%' };
-function itemLabel(it) { return TIER_NAMES_C[it.k][it.t] + ' ' + KIND_NAMES_C[it.k] + (it.p ? ' +' + it.p : ''); }
+const KIND_NAMES_C = { w:'Weapon', a:'Armor', s:'Shield', x:'Accessory', h:'Headgear', b:'Shoes' };
+const KIND_STAT = { w:'+atk', a:'+HP', s:'+block', x:'+dmg%', h:'+HP', b:'+speed' };
+const RARITY_NAMES_C = ['', 'Rare ', 'Epic ', 'Legendary '];
+const RARITY_COLORS = ['#e8e4f5', '#6ab0ff', '#c9a2ff', '#ffb020'];
+const EQUIP_SLOTS_C = ['w', 'a', 's', 'h', 'b', 'x1', 'x2'];
+const SLOT_LABELS = { w:'WEAPON', a:'ARMOR', s:'SHIELD', h:'HEAD', b:'SHOES', x1:'ACC 1', x2:'ACC 2' };
+function itemLabel(it) { return RARITY_NAMES_C[it.r || 0] + TIER_NAMES_C[it.k][it.t] + ' ' + KIND_NAMES_C[it.k] + (it.p ? ' +' + it.p : ''); }
 function tierColor(t) { return t >= 5 ? '#ff9a3c' : t >= 4 ? '#c9a2ff' : '#e8e4f5'; }
+function itemColor(it) { return (it.r || 0) > 0 ? RARITY_COLORS[it.r] : tierColor(it.t); }
 const CARD_INFO = {
   jelly:     ['Jelly Card',      'W: +4 atk',            'A: +40 HP'],
   bluejelly: ['Blue Jelly Card', 'W: +10% atk speed',    'A: +3 HP regen'],
@@ -181,7 +188,9 @@ const CARD_INFO = {
   direking:  ['GOREHORN CARD',   'W: 10% METEOR strike', 'A: FIRE AURA burns foes'],
   crab:      ['Tide Crab Card',  'W: +8 atk',            'A: +60HP +5% reduce'],
   siren:     ['Siren Card',      'W: +12% atk speed',    'A: +5 HP regen'],
-  solaris:   ['SOLARIS CARD',    'W: 15% SOLAR FLARE',   'A: +200HP +regen +speed']
+  solaris:   ['SOLARIS CARD',    'W: 15% SOLAR FLARE',   'A: +200HP +regen +speed'],
+  zombie:    ['Zombie Card',     'W: +18% damage',       'A: +150HP +5% reduce'],
+  plague:    ['Plaguebearer Card', 'W: +12% lifesteal',  'A: +8 HP regen']
 };
 const SHOP_NPC = { x: 15.5 * 32, y: 5 * 32 };
 function clientInTown() { return me && me.x >= 8 * 32 && me.x <= 18 * 32 && me.y >= 3 * 32 && me.y <= 8 * 32; }
@@ -759,6 +768,24 @@ function drawMob(mo, animT) {
     cx.fillStyle = 'rgba(0,0,0,.7)'; cx.fillText('GOREHORN', x + 1, y - 47);
     cx.fillStyle = '#ff9a3c'; cx.fillText('GOREHORN', x, y - 48);
     drawBar(x - 30, y - 44, 60, 4, t.hp / t.mh, '#ff5050');
+  } else if (t.ty === 'zombie') {
+    cx.fillStyle = '#6a9a5a';
+    cx.fillRect(x - 5, y - 25, 10, 9);                                  // head
+    cx.fillRect(x - 7, y - 16, 14, 10);                                 // body
+    cx.fillStyle = '#557a48';
+    cx.fillRect(x - 7, y - 6, 4, 6); cx.fillRect(x + 3, y - 6, 4, 6);   // shamble legs
+    cx.fillRect(x - 13, y - 16, 6, 4); cx.fillRect(x + 7, y - 14, 6, 4);// outstretched arms
+    cx.fillStyle = '#3a4a34'; cx.fillRect(x - 3, y - 14, 4, 3);         // torn shirt
+    cx.fillStyle = '#ff5050'; cx.fillRect(x - 3, y - 22, 2, 2); cx.fillRect(x + 1, y - 22, 2, 2);
+  } else if (t.ty === 'plague') {
+    cx.fillStyle = '#8a5a9a';
+    cx.beginPath(); cx.ellipse(x, y - 12, 14, 12, 0, 0, 7); cx.fill();  // bloated body
+    cx.fillStyle = '#6a4a7a';
+    cx.fillRect(x - 5, y - 28, 10, 8);                                  // head
+    cx.fillRect(x - 8, y - 3, 5, 4); cx.fillRect(x + 3, y - 3, 5, 4);   // stubby legs
+    cx.fillStyle = 'rgba(160,220,120,' + (0.25 + 0.15 * Math.sin(animT / 6)) + ')';
+    cx.beginPath(); cx.arc(x, y - 12, 20, 0, 7); cx.fill();             // plague miasma
+    cx.fillStyle = '#c0ff60'; cx.fillRect(x - 3, y - 25, 2, 2); cx.fillRect(x + 2, y - 25, 2, 2);
   } else if (t.ty === 'crab') {
     cx.fillStyle = '#e06040';
     cx.fillRect(x - 12, y - 12, 24, 10);                               // shell
@@ -833,6 +860,7 @@ function tileColor(c, tx, ty) {
     case 't': return '#3a7030';
     case 'f': return '#4a8f3c';
     case 'c': return v < 2 ? '#3a3346' : '#413a50';
+    case 'g': return v < 2 ? '#2e3830' : '#343e36';
   }
   return '#4a8f3c';
 }
@@ -872,6 +900,11 @@ function drawTile(c, tx, ty) {
     if (v === 2) cx.fillRect(x + 8, y + 14, 5, 3);
     if (v === 5) cx.fillRect(x + 20, y + 6, 4, 3);
     if (v === 3) { cx.fillStyle = 'rgba(0,0,0,.2)'; cx.fillRect(x + 14, y + 20, 6, 4); }
+  } else if (c === 'g') {
+    cx.fillStyle = 'rgba(120,200,120,.06)';
+    if (v === 1) cx.fillRect(x + 6, y + 10, 4, 2);
+    if (v === 4) cx.fillRect(x + 20, y + 22, 4, 2);
+    if (v === 2) { cx.fillStyle = 'rgba(0,0,0,.25)'; cx.fillRect(x + 12, y + 16, 8, 3); }
   } else if (c === 'f') {
     const cols = ['#ff8fb0', '#ffd76a', '#c491f0'];
     cx.fillStyle = cols[v % 3];
@@ -1218,6 +1251,7 @@ cv.addEventListener('pointerdown', e => {
         else if (rc.act === 'dropitem') ws.send(JSON.stringify({ t:'item', action:'drop', item: rc.item }));
         else if (rc.act === 'upgitem') ws.send(JSON.stringify({ t:'item', action:'upgrade', item: rc.item }));
         else if (rc.act === 'delcard') ws.send(JSON.stringify({ t:'item', action:'delcard', item: rc.item }));
+        else if (rc.act === 'upcard') ws.send(JSON.stringify({ t:'item', action:'upcard', item: rc.item }));
         else if (rc.act === 'addcard') pickCardFor = rc.item;
         else if (rc.act === 'pickcard') { ws.send(JSON.stringify({ t:'item', action:'setcard', item: pickCardFor, card: rc.card })); pickCardFor = null; }
         return;
@@ -1293,27 +1327,28 @@ function drawEquipPanel() {
     return;
   }
 
-  // equipped slots
-  let y = y0 + 36;
-  for (const sl of ['w', 'a', 's', 'x']) {
+  // equipped slots (7)
+  let y = y0 + 32;
+  for (const sl of EQUIP_SLOTS_C) {
     const id = invD.eqp[sl];
     const it = id ? invD.inv.find(i => i.id === id) : null;
-    cx.textAlign = 'left'; cx.font = 'bold 10px Courier New'; cx.fillStyle = '#8fd8ff';
-    cx.fillText(KIND_NAMES_C[sl].toUpperCase() + ':', x0 + 12, y + 14);
+    cx.textAlign = 'left'; cx.font = 'bold 9px Courier New'; cx.fillStyle = '#8fd8ff';
+    cx.fillText(SLOT_LABELS[sl] + ':', x0 + 10, y + 12);
     if (it) {
-      cx.font = '11px Courier New'; cx.fillStyle = tierColor(it.t);
-      cx.fillText(itemLabel(it), x0 + 96, y + 14);
-      cx.font = '9px Courier New'; cx.fillStyle = it.c ? '#c9a2ff' : '#5a5470';
-      cx.fillText('[' + (it.c ? CARD_INFO[it.c][0] : 'empty socket') + ']', x0 + 96, y + 27);
-      const cost = Math.round(100 * Math.pow(1.6, it.p)), ch = Math.round(Math.pow(0.8, it.p) * 100);
-      btn(equipRects, x0 + w - 220, y + 2, 52, 26, it.p >= 10 ? 'MAX' : '+' + (it.p + 1) + ' ' + ch + '%', '#5c3a7a', '#e0d0f5', { act: 'upgitem', item: it.id });
-      btn(equipRects, x0 + w - 162, y + 2, 46, 26, it.c ? 'CARD-' : 'CARD+', it.c ? '#5c3a3a' : '#2d5c3a', '#fff', { act: it.c ? 'delcard' : 'addcard', item: it.id });
-      btn(equipRects, x0 + w - 110, y + 2, 44, 26, 'UNEQ', '#3a3348', '#cfc4e8', { act: 'unequip', slot: sl });
+      cx.font = '10px Courier New'; cx.fillStyle = itemColor(it);
+      cx.fillText(itemLabel(it), x0 + 66, y + 12);
+      cx.font = '8px Courier New'; cx.fillStyle = it.c ? '#c9a2ff' : '#5a5470';
+      cx.fillText(it.c ? CARD_INFO[it.c][0] + ' ★' + (it.cs || 1) : '[empty socket]', x0 + 66, y + 24);
+      const ch = Math.round(Math.pow(0.8, it.p) * 100);
+      btn(equipRects, x0 + w - 252, y + 2, 50, 24, it.p >= 10 ? 'MAX' : '+' + (it.p + 1) + ' ' + ch + '%', '#5c3a7a', '#e0d0f5', { act: 'upgitem', item: it.id });
+      if (it.c && (it.cs || 1) < 10) btn(equipRects, x0 + w - 197, y + 2, 40, 24, 'UP★', '#8a6a20', '#ffe9a8', { act: 'upcard', item: it.id });
+      btn(equipRects, x0 + w - 152, y + 2, 46, 24, it.c ? 'CARD-' : 'CARD+', it.c ? '#5c3a3a' : '#2d5c3a', '#fff', { act: it.c ? 'delcard' : 'addcard', item: it.id });
+      btn(equipRects, x0 + w - 101, y + 2, 40, 24, 'UNEQ', '#3a3348', '#cfc4e8', { act: 'unequip', slot: sl });
     } else {
-      cx.font = '11px Courier New'; cx.fillStyle = '#5a5470';
-      cx.fillText('(nothing equipped)', x0 + 96, y + 14);
+      cx.font = '10px Courier New'; cx.fillStyle = '#5a5470';
+      cx.fillText('(empty)', x0 + 66, y + 12);
     }
-    y += 36;
+    y += 30;
   }
   // inventory
   y += 6;
@@ -1324,8 +1359,8 @@ function drawEquipPanel() {
   cx.font = '10px Courier New';
   for (const it of bagItems) {
     if (y > y0 + h - 30) break;
-    cx.textAlign = 'left'; cx.fillStyle = tierColor(it.t);
-    cx.fillText(itemLabel(it) + ' ' + KIND_STAT[it.k] + (it.c ? ' [' + CARD_INFO[it.c][0] + ']' : ''), x0 + 12, y + 13);
+    cx.textAlign = 'left'; cx.fillStyle = itemColor(it);
+    cx.fillText(itemLabel(it) + ' ' + KIND_STAT[it.k] + (it.c ? ' [' + CARD_INFO[it.c][0] + ' ★' + (it.cs || 1) + ']' : ''), x0 + 12, y + 13);
     btn(equipRects, x0 + w - 154, y, 52, 22, 'EQUIP', '#2d5c3a', '#cfe8d5', { act: 'equip', item: it.id });
     btn(equipRects, x0 + w - 96, y, 44, 22, 'DROP', '#5c3a3a', '#ffb0b0', { act: 'dropitem', item: it.id });
     y += 27;

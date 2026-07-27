@@ -72,6 +72,13 @@ for (let i = 0; i < 10; i++) MAP.push(('s' + 'd'.repeat(38) + 'w'.repeat(13)).sp
 MAP.push('w'.repeat(52).split(''));                              // open sea
 // palm trees on the sand
 [[6,47],[14,49],[22,46],[30,50],[34,47],[9,52],[26,52],[18,53]].forEach(([x,y]) => { if (MAP[y] && MAP[y][x] === 'd') MAP[y][x] = 't'; });
+// ---- ZOMBIE MANIA graveyard island (bridge across the sea from the beach) ----
+MAP[MAP.length - 1][24] = 'c'; MAP[MAP.length - 1][25] = 'c';   // bridge over the sea
+MAP.push(('s'.repeat(24) + 'cc' + 's'.repeat(26)).split(''));    // crypt gate
+for (let i = 0; i < 10; i++) MAP.push(('s' + 'g'.repeat(50) + 's').split(''));
+MAP.push('s'.repeat(52).split(''));
+// tombstones
+[[8,58],[16,61],[24,59],[32,63],[40,60],[12,64],[36,57],[44,64],[20,57]].forEach(([x,y]) => { if (MAP[y] && MAP[y][x] === 'g') MAP[y][x] = 's'; });
 const MAP_H = MAP.length;
 const BLOCKED = new Set(['t','w','s']);
 
@@ -97,21 +104,36 @@ const WEAPON_TIERS = [0, 5, 12, 25, 40, 60];          // atk bonus per tier (4-5
 const ARMOR_TIERS  = [0, 40, 100, 220, 350, 520];     // max HP bonus
 const SHIELD_TIERS = [0, 0.04, 0.08, 0.12, 0.18, 0.25]; // damage reduction
 const ACC_TIERS    = [0, 0.03, 0.05, 0.08, 0.12, 0.16]; // +damage%
-const TIER_NAMES_W = ['-', 'Iron', 'Steel', 'Runic', 'Valkyrie', 'Celestial'];
-const TIER_NAMES_A = ['-', 'Leather', 'Chain', 'Runic', 'Valkyrie', 'Celestial'];
-const TIER_NAMES_S = ['-', 'Buckler', 'Kite', 'Tower', 'Valkyrie', 'Celestial'];
-const TIER_NAMES_X = ['-', 'Ring', 'Amulet', 'Talisman', 'Relic', 'Celestial'];
-const TIER_NAMES = { w: TIER_NAMES_W, a: TIER_NAMES_A, s: TIER_NAMES_S, x: TIER_NAMES_X };
-const KIND_NAMES = { w: 'Weapon', a: 'Armor', s: 'Shield', x: 'Accessory' };
+const HEAD_TIERS   = [0, 30, 70, 140, 220, 320];        // max HP bonus
+const BOOT_TIERS   = [0, 0.03, 0.05, 0.08, 0.12, 0.16]; // move speed%
+const TIER_NAMES = {
+  w: ['-', 'Iron', 'Steel', 'Runic', 'Valkyrie', 'Celestial'],
+  a: ['-', 'Leather', 'Chain', 'Runic', 'Valkyrie', 'Celestial'],
+  s: ['-', 'Buckler', 'Kite', 'Tower', 'Valkyrie', 'Celestial'],
+  x: ['-', 'Ring', 'Amulet', 'Talisman', 'Relic', 'Celestial'],
+  h: ['-', 'Cap', 'Helm', 'Circlet', 'Valkyrie', 'Celestial'],
+  b: ['-', 'Sandals', 'Boots', 'Greaves', 'Valkyrie', 'Celestial']
+};
+const KIND_NAMES = { w: 'Weapon', a: 'Armor', s: 'Shield', x: 'Accessory', h: 'Headgear', b: 'Shoes' };
+const EQUIP_SLOTS = ['w', 'a', 's', 'h', 'b', 'x1', 'x2'];
+// rarity: 0 Normal, 1 Rare (+25%), 2 Epic (+50%), 3 Legendary (+100%, MVP only)
+const RARITY_NAMES = ['', 'Rare ', 'Epic ', 'Legendary '];
+const RARITY_MULT = [1, 1.25, 1.5, 2];
 const INV_MAX = 24;
-function newItem(kind, tier) { return { id: Math.random().toString(36).slice(2, 9), k: kind, t: tier, p: 0, c: null }; }
-function itemName(it) { return TIER_NAMES[it.k][it.t] + ' ' + KIND_NAMES[it.k] + (it.p ? ' +' + it.p : ''); }
+function newItem(kind, tier, rarity) { return { id: Math.random().toString(36).slice(2, 9), k: kind, t: tier, p: 0, c: null, cs: 0, r: rarity || 0 }; }
+function itemName(it) { return RARITY_NAMES[it.r || 0] + TIER_NAMES[it.k][it.t] + ' ' + KIND_NAMES[it.k] + (it.p ? ' +' + it.p : ''); }
 const SHOP_ITEMS = {
   w1: { kind: 'w', tier: 1, price: 200 },  w2: { kind: 'w', tier: 2, price: 800 },  w3: { kind: 'w', tier: 3, price: 2500 },
   a1: { kind: 'a', tier: 1, price: 200 },  a2: { kind: 'a', tier: 2, price: 800 },  a3: { kind: 'a', tier: 3, price: 2500 },
   s1: { kind: 's', tier: 1, price: 200 },  s2: { kind: 's', tier: 2, price: 800 },
+  h1: { kind: 'h', tier: 1, price: 200 },  h2: { kind: 'h', tier: 2, price: 800 },
+  b1: { kind: 'b', tier: 1, price: 200 },  b2: { kind: 'b', tier: 2, price: 800 },
   red: { pot: 'red', price: 15 },          white: { pot: 'white', price: 60 }
 };
+// card star upgrades: consume 1 duplicate card + zeny per attempt, +15% effect per star
+function cardStarCost(stars) { return 200 * (stars + 1); }
+function cardStarChance(stars) { return Math.pow(0.85, stars); }
+function starMult(cs) { return 1 + 0.15 * Math.max(0, (cs || 1) - 1); }
 // stat effects per point: STR +1 atk | VIT +8 HP, +0.2 regen | AGI +0.5% aspd, +0.2% dodge | DEX +0.4% crit | INT +0.8% damage
 const STAT_KEYS = ['str', 'vit', 'agi', 'dex', 'int'];
 const MAX_PLUS = 10;
@@ -119,39 +141,48 @@ const MAX_PLUS = 10;
 // ---------------- CARDS (RO-style monster card drops) ----------------
 // w = effect when slotted in weapon, a = effect when slotted in armor
 const CARDS = {
-  jelly:     { name: 'Jelly Card',      w: { atk: 4 },       a: { hp: 40 },              drop: 0.05  },
-  bluejelly: { name: 'Blue Jelly Card', w: { aspd: 0.10 },   a: { regen: 3 },            drop: 0.04  },
-  mushy:     { name: 'Mushy Card',      w: { dmg: 0.12 },    a: { dr: 0.10 },            drop: 0.04  },
-  wolf:      { name: 'Dire Wolf Card',  w: { crit: 0.08 },   a: { spd: 0.10 },           drop: 0.035 },
-  skeleton:  { name: 'Skeleton Card',   w: { ls: 0.08 },     a: { dodge: 0.10 },         drop: 0.03  },
-  ghoul:     { name: 'Ghoul Card',      w: { pvp: 0.15 },    a: { hp: 100, dr: 0.05 },   drop: 0.03  },
-  direking:  { name: 'GOREHORN CARD',   w: { meteor: 0.10 }, a: { aura: 15 },            drop: 0.25  },
-  crab:      { name: 'Tide Crab Card',  w: { atk: 8 },       a: { hp: 60, dr: 0.05 },    drop: 0.04  },
-  siren:     { name: 'Siren Card',      w: { aspd: 0.12 },   a: { regen: 5 },            drop: 0.035 },
-  solaris:   { name: 'SOLARIS CARD',    w: { solar: 0.15 },  a: { hp: 200, regen: 5, spd: 0.05 }, drop: 0.30 }
+  jelly:     { name: 'Jelly Card',      w: { atk: 4 },       a: { hp: 40 },              drop: 0.02  },
+  bluejelly: { name: 'Blue Jelly Card', w: { aspd: 0.10 },   a: { regen: 3 },            drop: 0.016 },
+  mushy:     { name: 'Mushy Card',      w: { dmg: 0.12 },    a: { dr: 0.10 },            drop: 0.016 },
+  wolf:      { name: 'Dire Wolf Card',  w: { crit: 0.08 },   a: { spd: 0.10 },           drop: 0.014 },
+  skeleton:  { name: 'Skeleton Card',   w: { ls: 0.08 },     a: { dodge: 0.10 },         drop: 0.012 },
+  ghoul:     { name: 'Ghoul Card',      w: { pvp: 0.15 },    a: { hp: 100, dr: 0.05 },   drop: 0.012 },
+  direking:  { name: 'GOREHORN CARD',   w: { meteor: 0.10 }, a: { aura: 15 },            drop: 0.10  },
+  crab:      { name: 'Tide Crab Card',  w: { atk: 8 },       a: { hp: 60, dr: 0.05 },    drop: 0.016 },
+  siren:     { name: 'Siren Card',      w: { aspd: 0.12 },   a: { regen: 5 },            drop: 0.014 },
+  solaris:   { name: 'SOLARIS CARD',    w: { solar: 0.15 },  a: { hp: 200, regen: 5, spd: 0.05 }, drop: 0.12 },
+  zombie:    { name: 'Zombie Card',     w: { dmg: 0.18 },    a: { hp: 150, dr: 0.05 },   drop: 0.012 },
+  plague:    { name: 'Plaguebearer Card', w: { ls: 0.12 },   a: { regen: 8 },            drop: 0.01  }
 };
 function cardEff(p, side, key) {
-  // weapon+accessory sockets use card w-effects; armor+shield sockets use a-effects
+  // weapon/accessory sockets use card w-effects; armor/shield/head/shoes use a-effects; ★ stars amplify
   let v = 0;
-  for (const sl of (side === 'w' ? ['w', 'x'] : ['a', 's'])) {
+  for (const sl of (side === 'w' ? ['w', 'x1', 'x2'] : ['a', 's', 'h', 'b'])) {
     const id = p.eq.eqp ? p.eq.eqp[sl] : null;
     if (!id) continue;
     const it = p.eq.inv.find(i => i.id === id);
-    if (it && it.c && CARDS[it.c]) v += (side === 'w' ? CARDS[it.c].w : CARDS[it.c].a)[key] || 0;
+    if (it && it.c && CARDS[it.c]) v += ((side === 'w' ? CARDS[it.c].w : CARDS[it.c].a)[key] || 0) * starMult(it.cs);
   }
   return v;
 }
 function upgradeCost(cur) { return Math.round(100 * Math.pow(1.6, cur)); }
 function upgradeChance(cur) { return Math.pow(0.8, cur); } // 80% at +0, ~13% at +9
 function inTown(p) { return p.x >= 8 * TILE && p.x <= 18 * TILE && p.y >= 3 * TILE && p.y <= 8 * TILE; }
-function defaultEq() { return { red: 0, white: 0, cards: {}, inv: [], eqp: { w: null, a: null, s: null, x: null } }; }
+function defaultEq() { return { red: 0, white: 0, cards: {}, inv: [], eqp: { w: null, a: null, s: null, h: null, b: null, x1: null, x2: null } }; }
 function migrateEq(eq) {
   if (!eq) return defaultEq();
-  if (eq.inv) { eq.eqp = eq.eqp || { w: null, a: null, s: null, x: null }; eq.cards = eq.cards || {}; return eq; }
-  // legacy format -> item inventory
-  const ne = { red: eq.red || 0, white: eq.white || 0, cards: eq.cards || {}, inv: [], eqp: { w: null, a: null, s: null, x: null } };
-  if (eq.wt) { const it = newItem('w', eq.wt); it.p = eq.wp || 0; it.c = eq.wc || null; ne.inv.push(it); ne.eqp.w = it.id; }
-  if (eq.at) { const it = newItem('a', eq.at); it.p = eq.ap || 0; it.c = eq.ac || null; ne.inv.push(it); ne.eqp.a = it.id; }
+  if (eq.inv) {
+    const oldEqp = eq.eqp || {};
+    eq.eqp = { w: oldEqp.w || null, a: oldEqp.a || null, s: oldEqp.s || null, h: oldEqp.h || null, b: oldEqp.b || null, x1: oldEqp.x1 || oldEqp.x || null, x2: oldEqp.x2 || null };
+    eq.cards = eq.cards || {};
+    eq.inv.forEach(it => { if (it.r === undefined) it.r = 0; if (it.cs === undefined) it.cs = it.c ? 1 : 0; });
+    return eq;
+  }
+  // legacy v5-format -> item inventory
+  const ne = defaultEq();
+  ne.red = eq.red || 0; ne.white = eq.white || 0; ne.cards = eq.cards || {};
+  if (eq.wt) { const it = newItem('w', eq.wt); it.p = eq.wp || 0; it.c = eq.wc || null; it.cs = it.c ? 1 : 0; ne.inv.push(it); ne.eqp.w = it.id; }
+  if (eq.at) { const it = newItem('a', eq.at); it.p = eq.ap || 0; it.c = eq.ac || null; it.cs = it.c ? 1 : 0; ne.inv.push(it); ne.eqp.a = it.id; }
   return ne;
 }
 function equippedItem(p, slot) {
@@ -161,12 +192,20 @@ function equippedItem(p, slot) {
 function recalcStats(p) {
   const base = statsForLevel(p.cls, p.level);
   const ratio = p.maxHp ? Math.min(1, p.hp / p.maxHp) : 1;
-  const w = equippedItem(p, 'w'), a = equippedItem(p, 'a'), s = equippedItem(p, 's'), x = equippedItem(p, 'x');
+  const w = equippedItem(p, 'w'), a = equippedItem(p, 'a'), s = equippedItem(p, 's');
+  const h = equippedItem(p, 'h'), b = equippedItem(p, 'b');
+  const x1 = equippedItem(p, 'x1'), x2 = equippedItem(p, 'x2');
+  const rm = it => it ? RARITY_MULT[it.r || 0] : 1;
   const st = p.st;
-  p.atk = base.atk + st.str + (w ? WEAPON_TIERS[w.t] + w.p * 3 : 0) + cardEff(p, 'w', 'atk') + (p.adv ? 5 : 0);
-  p.maxHp = base.maxHp + st.vit * 8 + (a ? ARMOR_TIERS[a.t] + a.p * 25 : 0) + (s ? s.p * 20 : 0) + cardEff(p, 'a', 'hp') + (p.adv ? 60 : 0);
-  p.drBonus = (s ? SHIELD_TIERS[s.t] + s.p * 0.005 : 0);
-  p.dmgBonus = (x ? ACC_TIERS[x.t] + x.p * 0.005 : 0) + st.int * 0.008;
+  p.atk = base.atk + st.str + (w ? Math.round(WEAPON_TIERS[w.t] * rm(w)) + w.p * 3 : 0) + cardEff(p, 'w', 'atk') + (p.adv ? 5 : 0);
+  p.maxHp = base.maxHp + st.vit * 8
+    + (a ? Math.round(ARMOR_TIERS[a.t] * rm(a)) + a.p * 25 : 0)
+    + (h ? Math.round(HEAD_TIERS[h.t] * rm(h)) + h.p * 15 : 0)
+    + (s ? s.p * 20 : 0)
+    + cardEff(p, 'a', 'hp') + (p.adv ? 60 : 0);
+  p.drBonus = (s ? SHIELD_TIERS[s.t] * rm(s) + s.p * 0.005 : 0);
+  p.dmgBonus = (x1 ? ACC_TIERS[x1.t] * rm(x1) + x1.p * 0.005 : 0) + (x2 ? ACC_TIERS[x2.t] * rm(x2) + x2.p * 0.005 : 0) + st.int * 0.008;
+  p.spdBonus = (b ? BOOT_TIERS[b.t] * rm(b) + b.p * 0.004 : 0);
   p.aspdBonus = st.agi * 0.005;
   p.dodgeBonus = st.agi * 0.002;
   p.critBonus = st.dex * 0.004;
@@ -226,10 +265,12 @@ const MONSTER_TYPES = {
   wolf:      { name: 'Dire Wolf',   hp: 680,  atk: 45, xp: 220,  zeny: 135,  speed: 1.9, aggro: 220, lvl: 15 },
   skeleton:  { name: 'Skeleton',    hp: 950,  atk: 55, xp: 380,  zeny: 210,  speed: 1.5, aggro: 240, lvl: 20 },
   ghoul:     { name: 'Ghoul',       hp: 1400, atk: 70, xp: 600,  zeny: 330,  speed: 1.2, aggro: 260, lvl: 25 },
-  direking:  { name: 'Gorehorn the Dire King', hp: 9000, atk: 100, xp: 4500, zeny: 4000, speed: 1.9, aggro: 320, lvl: 40, boss: true },
+  direking:  { name: 'Gorehorn the Dire King', hp: 18000, atk: 140, xp: 6000, zeny: 6000, speed: 1.9, aggro: 320, lvl: 40, boss: true, armor: 0.2, enrageAt: 0.4 },
   crab:      { name: 'Tide Crab',   hp: 1200, atk: 60,  xp: 800,   zeny: 450,  speed: 1.0, aggro: 240, lvl: 26 },
   siren:     { name: 'Siren',       hp: 1800, atk: 80,  xp: 1300,  zeny: 700,  speed: 1.3, aggro: 260, lvl: 32 },
-  solaris:   { name: 'SOLARIS the Sun Tyrant', hp: 40000, atk: 160, xp: 15000, zeny: 14000, speed: 2.0, aggro: 340, lvl: 60, boss: true, mvp: true, armor: 0.3 }
+  solaris:   { name: 'SOLARIS the Sun Tyrant', hp: 80000, atk: 220, xp: 25000, zeny: 25000, speed: 2.0, aggro: 340, lvl: 70, boss: true, mvp: true, armor: 0.4, enrageAt: 0.5 },
+  zombie:    { name: 'Zombie',      hp: 2500, atk: 90,  xp: 2000,  zeny: 900,  speed: 0.9, aggro: 260, lvl: 38 },
+  plague:    { name: 'Plaguebearer', hp: 4200, atk: 115, xp: 3500, zeny: 1500, speed: 1.1, aggro: 280, lvl: 46 }
 };
 // monster skills: fired while chasing a target, on a cooldown ("fx" reuses client skill visuals)
 const MOB_SKILLS = {
@@ -241,7 +282,9 @@ const MOB_SKILLS = {
   ghoul:     { cd: 8000,  fx: 'crossimpact' },// life drain: damage + self heal
   crab:      { cd: 10000, fx: 'quicken' },    // bubble shell: 50% damage shield 4s
   siren:     { cd: 8000,  fx: 'frostnova' },  // siren song: AoE scream
-  direking:  { cd: 12000, fx: 'bbash' }       // dire roar: heavy AoE
+  direking:  { cd: 12000, fx: 'bbash' },      // dire roar: heavy AoE
+  zombie:    { cd: 8000,  fx: 'venom' },      // infected bite: damage + self heal
+  plague:    { cd: 9000,  fx: 'frostnova' }   // plague cloud: AoE sickness
   // solaris has its own rotation below
 };
 const SPAWN_ZONES = [
@@ -255,7 +298,9 @@ const SPAWN_ZONES = [
   ['direking',  1, 34, 36, 46, 41],
   ['crab',      5, 2,  46, 30, 54],
   ['siren',     4, 15, 46, 37, 54],
-  ['solaris',   1, 28, 48, 37, 54]
+  ['solaris',   1, 28, 48, 37, 54],
+  ['zombie',    7, 2,  57, 48, 66],
+  ['plague',    3, 20, 57, 48, 66]
 ];
 
 let nextMonsterId = 1;
@@ -806,7 +851,7 @@ wss.on('connection', (ws) => {
       const now = Date.now();
       const dt = Math.min(now - me.lastMoveMsg, 400);
       me.lastMoveMsg = now;
-      const maxDist = c.speed * (1 + cardEff(me, 'a', 'spd')) * (dt / 16) + 12;
+      const maxDist = c.speed * (1 + cardEff(me, 'a', 'spd') + (me.spdBonus || 0)) * (dt / 16) + 12;
       const nx = Number(msg.x), ny = Number(msg.y);
       if (!isFinite(nx) || !isFinite(ny)) return;
       const dx = nx - me.x, dy = ny - me.y;
@@ -860,16 +905,21 @@ wss.on('connection', (ws) => {
       if (msg.action === 'equip') {
         const it = findItem(msg.item);
         if (!it) return;
-        me.eq.eqp[it.k] = it.id;
+        if (it.k === 'x') {
+          const slot = !me.eq.eqp.x1 ? 'x1' : (!me.eq.eqp.x2 ? 'x2' : 'x1');
+          me.eq.eqp[slot] = it.id;
+        } else {
+          me.eq.eqp[it.k] = it.id;
+        }
         recalcStats(me);
         send(ws, { t: 'shopnote', ok: true, msg: 'Equipped ' + itemName(it) });
       } else if (msg.action === 'unequip') {
-        if (['w','a','s','x'].includes(msg.slot)) { me.eq.eqp[msg.slot] = null; recalcStats(me); }
+        if (EQUIP_SLOTS.includes(msg.slot)) { me.eq.eqp[msg.slot] = null; recalcStats(me); }
       } else if (msg.action === 'drop') {
         const it = findItem(msg.item);
         if (!it) return;
         if (it.c) { me.eq.cards[it.c] = (me.eq.cards[it.c] || 0) + 1; } // card returned before item destroyed
-        for (const sl of ['w','a','s','x']) if (me.eq.eqp[sl] === it.id) me.eq.eqp[sl] = null;
+        for (const sl of EQUIP_SLOTS) if (me.eq.eqp[sl] === it.id) me.eq.eqp[sl] = null;
         me.eq.inv = me.eq.inv.filter(i => i.id !== it.id);
         recalcStats(me);
         send(ws, { t: 'shopnote', ok: true, msg: itemName(it) + ' discarded' + (it.c ? ' (card returned)' : '') });
@@ -880,6 +930,7 @@ wss.on('connection', (ws) => {
         if (it.c) me.eq.cards[it.c] = (me.eq.cards[it.c] || 0) + 1; // swap: old card back to bag
         me.eq.cards[ck]--;
         it.c = ck;
+        it.cs = 1; // fresh socket starts at 1 star
         recalcStats(me);
         send(ws, { t: 'shopnote', ok: true, msg: CARDS[ck].name + ' socketed into ' + itemName(it) });
         if (ck === 'direking' || ck === 'solaris') broadcast({ t: 'event', kind: 'boss', text: me.name + ' socketed the ' + CARDS[ck].name + '!' });
@@ -904,6 +955,24 @@ wss.on('connection', (ws) => {
           if (it.p >= 8) broadcast({ t: 'event', kind: 'boss', text: me.name + ' refined ' + itemName(it) + '!' });
         } else {
           send(ws, { t: 'shopnote', ok: false, msg: 'FAILED... ' + cost + 'z gone. The anvil laughs.' });
+        }
+      } else if (msg.action === 'upcard') {
+        // upgrade socketed card stars (1-10): consumes 1 duplicate card + zeny per attempt
+        const it = findItem(msg.item);
+        if (!it || !it.c) return;
+        if ((it.cs || 1) >= 10) { send(ws, { t: 'shopnote', ok: false, msg: 'Card already at ★10!' }); return; }
+        if (!(me.eq.cards[it.c] > 0)) { send(ws, { t: 'shopnote', ok: false, msg: 'Need a duplicate ' + CARDS[it.c].name + ' to upgrade' }); return; }
+        const cost = cardStarCost(it.cs || 1);
+        if (me.zeny < cost) { send(ws, { t: 'shopnote', ok: false, msg: 'Need ' + cost + 'z' }); return; }
+        me.zeny -= cost;
+        me.eq.cards[it.c]--; // duplicate consumed either way
+        if (Math.random() < cardStarChance(it.cs || 1)) {
+          it.cs = (it.cs || 1) + 1;
+          recalcStats(me);
+          send(ws, { t: 'shopnote', ok: true, msg: 'SUCCESS! ' + CARDS[it.c].name + ' is now ★' + it.cs + '!' });
+          if (it.cs >= 7) broadcast({ t: 'event', kind: 'boss', text: me.name + ' upgraded ' + CARDS[it.c].name + ' to ★' + it.cs + '!' });
+        } else {
+          send(ws, { t: 'shopnote', ok: false, msg: 'FAILED... duplicate card and ' + cost + 'z consumed.' });
         }
       } else if (msg.action === 'statup') {
         const k = msg.stat;
@@ -976,19 +1045,22 @@ function killMonster(m, killer) {
   killer.zeny += Math.round((t.zeny + Math.floor(Math.random() * t.zeny * 0.5)) * zmult);
   broadcast({ t: 'event', kind: 'mdeath', id: m.id, x: m.x, y: m.y, killer: killer.id, zeny: t.zeny });
   if (t.boss) broadcast({ t: 'event', kind: 'boss', text: killer.name + ' has slain ' + t.name + '! It will return in 10 minutes...' });
-  // rare equipment drop (drop-gear beats shop gear: tiers scale with monster level)
-  const dropCh = t.mvp ? 0.5 : t.boss ? 0.25 : 0.02;
+  // rare equipment drop - significantly reduced rates; Legendary rarity ONLY from MVP
+  const dropCh = t.mvp ? 0.25 : t.boss ? 0.08 : 0.005;
   if (Math.random() < dropCh && killer.eq.inv.length < INV_MAX) {
-    const kind = ['w', 'a', 's', 'x'][Math.floor(Math.random() * 4)];
+    const kind = ['w', 'a', 's', 'x', 'h', 'b'][Math.floor(Math.random() * 6)];
     let tier;
     if (t.lvl >= 40) tier = Math.random() < 0.5 ? 5 : 4;
     else if (t.lvl >= 16) tier = Math.random() < 0.5 ? 4 : 3;
     else if (t.lvl >= 6) tier = Math.random() < 0.6 ? 3 : 2;
     else tier = Math.random() < 0.6 ? 2 : 1;
-    const it = newItem(kind, tier);
+    let rarity;
+    if (t.mvp) { const r = Math.random(); rarity = r < 0.4 ? 3 : r < 0.8 ? 2 : 1; }        // MVP: 40% Legendary
+    else { const r = Math.random(); rarity = r < 0.7 ? 0 : r < 0.95 ? 1 : 2; }             // others: max Epic
+    const it = newItem(kind, tier, rarity);
     killer.eq.inv.push(it);
-    broadcast({ t: 'event', kind: 'lootdrop', id: killer.id, item: itemName(it), tier, x: Math.round(m.x), y: Math.round(m.y) });
-    if (tier >= 4) broadcast({ t: 'event', kind: 'boss', text: '✨ ' + killer.name + ' looted ' + itemName(it) + '!' });
+    broadcast({ t: 'event', kind: 'lootdrop', id: killer.id, item: itemName(it), tier: rarity >= 2 ? 4 : tier, x: Math.round(m.x), y: Math.round(m.y) });
+    if (rarity >= 2 || tier >= 4) broadcast({ t: 'event', kind: 'boss', text: '✨ ' + killer.name + ' looted ' + itemName(it) + '!' });
     sendInv(killer);
   }
   // card drop roll
@@ -1080,15 +1152,23 @@ setInterval(() => {
         } else if (m.type === 'direking') {
           broadcast(fxMsg);
           for (const pid in players) { const pl = players[pid]; if (!pl.dead && Math.hypot(pl.x - m.x, pl.y - m.y) < 120) { if (monsterHitsPlayer(m, pl, Math.floor(t.atk * 1.0))) killPlayer(pl, m); } }
+        } else if (m.type === 'zombie' && d < 90) {
+          fxMsg.x = Math.round(tgt.x); fxMsg.y = Math.round(tgt.y); broadcast(fxMsg);
+          const dd = Math.floor(t.atk * 1.2);
+          m.hp = Math.min(t.hp, m.hp + Math.floor(dd / 2));
+          if (monsterHitsPlayer(m, tgt, dd)) killPlayer(tgt, m);
+        } else if (m.type === 'plague') {
+          broadcast(fxMsg);
+          for (const pid in players) { const pl = players[pid]; if (!pl.dead && Math.hypot(pl.x - m.x, pl.y - m.y) < 105) { if (monsterHitsPlayer(m, pl, Math.floor(t.atk * 0.85))) killPlayer(pl, m); } }
         }
       }
-      // ---- SOLARIS MVP rotation: flare + beam + enrage + regeneration ----
+      // ---- boss enrage + SOLARIS MVP rotation ----
+      if (t.enrageAt && !m.enraged && m.hp < t.hp * t.enrageAt) {
+        m.enraged = true;
+        broadcast({ t: 'event', kind: 'boss', text: '🔥 ' + t.name + ' ENRAGES!!' });
+        broadcast({ t: 'event', kind: 'skillfx', id: m.id, skill: 'warcry', x: Math.round(m.x), y: Math.round(m.y) });
+      }
       if (t.mvp) {
-        if (!m.enraged && m.hp < t.hp * 0.5) {
-          m.enraged = true;
-          broadcast({ t: 'event', kind: 'boss', text: '🔥 SOLARIS ENRAGES! The sun burns hotter!!' });
-          broadcast({ t: 'event', kind: 'skillfx', id: m.id, skill: 'warcry', x: Math.round(m.x), y: Math.round(m.y) });
-        }
         const rage = m.enraged ? 1.5 : 1;
         if (now > (m.flareAt || 0)) {
           m.flareAt = now + (m.enraged ? 6000 : 8000);
@@ -1178,7 +1258,7 @@ function publicPlayer(p) {
     xp: p.xp, xn: xpNeeded(p.level), z: p.zeny, dead: p.dead, b: isBuffed(p) ? 1 : 0,
     eq: [w ? w.t : 0, w ? w.p : 0, a ? a.t : 0, a ? a.p : 0], po: [p.eq.red, p.eq.white],
     wc: w ? w.c : null, ac: a ? a.c : null, cd: p.eq.cards, adv: p.adv || 0,
-    spm: 1 + cardEff(p, 'a', 'spd'), au: cardEff(p, 'a', 'aura') > 0 ? 1 : 0
+    spm: 1 + cardEff(p, 'a', 'spd') + (p.spdBonus || 0), au: cardEff(p, 'a', 'aura') > 0 ? 1 : 0
   };
 }
 
