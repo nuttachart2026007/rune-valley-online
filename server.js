@@ -441,6 +441,31 @@ const wss = new WebSocketServer({ server });
 function send(ws, obj) { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); }
 function broadcast(obj) { const s = JSON.stringify(obj); for (const id in players) { const ws = players[id].ws; if (ws.readyState === 1) ws.send(s); } }
 
+// ---------------- MAINTENANCE MODE (admin: the hero named ADMIN_NAME) ----------------
+let maintenance = false;
+const ADMIN_NAME = (process.env.ADMIN_NAME || '007').toLowerCase();
+function startMaintenance() {
+  broadcast({ t: 'event', kind: 'boss', text: '⚠️ SERVER MAINTENANCE in 10 seconds! Progress is saved.' });
+  let n = 10;
+  const iv = setInterval(() => {
+    n--;
+    if (n > 0) {
+      broadcast({ t: 'event', kind: 'boss', text: '⚠️ Maintenance in ' + n + '...' });
+    } else {
+      clearInterval(iv);
+      maintenance = true;
+      broadcast({ t: 'event', kind: 'boss', text: '🔧 SERVER CLOSED FOR MAINTENANCE - back soon!' });
+      setTimeout(() => {
+        for (const id in players) {
+          try { persist(players[id]); players[id].ws.close(); } catch (e) {}
+        }
+        dbFlush();
+        console.log('[maint] server closed for maintenance');
+      }, 800);
+    }
+  }, 1000);
+}
+
 function cleanName(raw) {
   let n = String(raw || '').replace(/[^\w\- ]/g, '').trim().slice(0, 12);
   return n.length ? n : 'Novice' + Math.floor(Math.random() * 999);
@@ -738,6 +763,10 @@ wss.on('connection', (ws) => {
     if (msg.t === 'join' && !me) {
       const name = cleanName(msg.name);
       const lower = name.toLowerCase();
+      if (maintenance && lower !== ADMIN_NAME) {
+        send(ws, { t: 'joinError', msg: '🔧 Server under maintenance - please come back in a few minutes!' });
+        return;
+      }
       const pin = String(msg.pin || '').replace(/\D/g, '').slice(0, 4);
       if (pin.length !== 4) { send(ws, { t: 'joinError', msg: 'PIN must be 4 digits' }); return; }
       const ph = hashPin(pin);
@@ -924,6 +953,16 @@ wss.on('connection', (ws) => {
 function handleChat(p, msg) {
   const text = String(msg.text || '').slice(0, 120).trim();
   if (!text) return;
+  // admin commands (only the admin hero, protected by their PIN)
+  if (text.startsWith('/') && p.name.toLowerCase() === ADMIN_NAME) {
+    if (text === '/maint') { startMaintenance(); return; }
+    if (text === '/open') {
+      maintenance = false;
+      broadcast({ t: 'event', kind: 'boss', text: '✅ Maintenance complete - SERVER IS OPEN! Welcome back!' });
+      console.log('[maint] server reopened');
+      return;
+    }
+  }
   broadcast({ t: 'event', kind: 'chat', id: p.id, name: p.name, text });
 }
 
