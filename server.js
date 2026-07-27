@@ -1184,7 +1184,7 @@ function publicPlayer(p) {
 
 server.listen(PORT, () => {
   console.log('=========================================');
-  console.log('  RUNE VALLEY ONLINE v2 - server started');
+  console.log('  007 ONLINE - server started');
   console.log(`  Local play:  http://localhost:${PORT}`);
   console.log('=========================================');
 });
