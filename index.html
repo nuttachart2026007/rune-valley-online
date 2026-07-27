@@ -58,12 +58,30 @@
   #btnS3 { right:96px; bottom:152px; width:46px; height:46px; font-size:14px; }
   #btnChat { right:22px; bottom:152px; width:42px; height:42px; font-size:16px; }
   @media (max-width: 1000px), (pointer: coarse) {
-    body { align-items:flex-start; }
-    #wrap { width:100vw; }
-    canvas { width:100vw; height:auto; border:none; border-radius:0; }
+    html, body { height:100%; overflow:hidden; overscroll-behavior:none; position:fixed; inset:0; width:100%; }
+    body { align-items:stretch; justify-content:stretch; }
+    #wrap { width:100vw; height:100dvh; }
+    canvas { width:100vw; height:100dvh; border:none; border-radius:0; box-shadow:none; }
     #hint { display:none; }
-    #chatlog { width:60vw; font-size:11px; }
-    #chatin { width:70vw; }
+    #chatlog { width:56vw; font-size:11px; bottom:110px; }
+    #chatin { width:70vw; bottom:80px; }
+    #login { overflow-y:auto; padding:16px 0; }
+    #login h1 { font-size:30px; }
+    .cls { width:96px; padding:8px 4px; }
+    .cls .icon { font-size:22px; }
+    /* bigger, notch-safe touch controls */
+    #joy { left:calc(14px + env(safe-area-inset-left)); bottom:calc(70px + env(safe-area-inset-bottom)); width:132px; height:132px; }
+    #joyknob { left:38px; top:38px; width:56px; height:56px; }
+    #btnAtk { right:calc(20px + env(safe-area-inset-right)); bottom:calc(74px + env(safe-area-inset-bottom)); width:86px; height:86px; font-size:18px; }
+    #btnS1 { right:calc(118px + env(safe-area-inset-right)); bottom:calc(60px + env(safe-area-inset-bottom)); width:52px; height:52px; }
+    #btnS2 { right:calc(136px + env(safe-area-inset-right)); bottom:calc(122px + env(safe-area-inset-bottom)); width:52px; height:52px; }
+    #btnS3 { right:calc(102px + env(safe-area-inset-right)); bottom:calc(178px + env(safe-area-inset-bottom)); width:52px; height:52px; }
+    #btnChat { right:calc(24px + env(safe-area-inset-right)); bottom:calc(180px + env(safe-area-inset-bottom)); width:46px; height:46px; }
+    #btnPotR { left:calc(166px + env(safe-area-inset-left)); bottom:calc(64px + env(safe-area-inset-bottom)); width:50px; height:50px; }
+    #btnPotW { left:calc(166px + env(safe-area-inset-left)); bottom:calc(126px + env(safe-area-inset-bottom)); width:50px; height:50px; }
+    #btnRank { top:calc(10px + env(safe-area-inset-top)); }
+    #btnShop { top:calc(10px + env(safe-area-inset-top)); }
+    #btnCards { top:calc(10px + env(safe-area-inset-top)); }
   }
 </style>
 </head>
@@ -144,6 +162,26 @@ function clientInTown() { return me && me.x >= 8 * 32 && me.x <= 18 * 32 && me.y
 const IS_TOUCH = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 let touchVec = { x: 0, y: 0 };
 let touchReady = false;
+
+// ---- fullscreen-fit canvas: internal resolution follows the device screen shape ----
+function fitCanvas() {
+  const small = IS_TOUCH || window.innerWidth < 1000;
+  if (!small) {
+    if (cv.width !== 960) { cv.width = 960; cv.height = 600; }
+    return;
+  }
+  const vw = window.visualViewport ? window.visualViewport.width : window.innerWidth;
+  const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  const aspect = vw / Math.max(1, vh);
+  // keep world scale constant: 600px of world height, width follows screen shape
+  const h = 600;
+  const w = Math.max(340, Math.min(1400, Math.round(h * aspect)));
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; cx.imageSmoothingEnabled = false; }
+}
+fitCanvas();
+window.addEventListener('resize', fitCanvas);
+window.addEventListener('orientationchange', () => setTimeout(fitCanvas, 300));
+if (window.visualViewport) window.visualViewport.addEventListener('resize', fitCanvas);
 
 function setupTouch() {
   if (!IS_TOUCH || touchReady) return;
@@ -839,22 +877,36 @@ function drawHud() {
   cx.fillRect(0, cv.height - 34, cv.width, 34);
   cx.fillStyle = '#4a3f66'; cx.fillRect(0, cv.height - 35, cv.width, 1);
 
+  const W = cv.width, H = cv.height;
+  const compact = W < 760;
+
   cx.textAlign = 'left'; cx.font = 'bold 12px Courier New';
   cx.fillStyle = '#ffd76a';
-  cx.fillText(me.n + '  Lv ' + me.lv + '  (' + me.c.toUpperCase() + ')', 12, cv.height - 13);
+  cx.fillText(me.n + ' Lv' + me.lv + (compact ? '' : '  (' + me.c.toUpperCase() + ')'), 12, H - 13);
 
-  // HP
-  drawBar(240, cv.height - 24, 160, 10, me.hp / me.mh, '#e74c3c');
-  cx.fillStyle = '#fff'; cx.font = '10px Courier New';
-  cx.fillText('HP ' + me.hp + '/' + me.mh, 244, cv.height - 15);
-  // XP
-  drawBar(420, cv.height - 24, 160, 10, me.xp / me.xn, '#66d9ff');
-  cx.fillText('XP ' + me.xp + '/' + me.xn, 424, cv.height - 15);
-  // zeny + online
-  cx.fillStyle = '#ffd76a'; cx.font = 'bold 12px Courier New';
-  cx.fillText(me.z + ' zeny', 600, cv.height - 13);
-  cx.fillStyle = '#8fd8ff';
-  cx.fillText(onlineCount + ' online', 700, cv.height - 13);
+  if (compact) {
+    // stacked mini-block above the bottom bar (left side)
+    drawBar(12, H - 62, 120, 9, me.hp / me.mh, '#e74c3c');
+    drawBar(12, H - 48, 120, 9, me.xp / me.xn, '#66d9ff');
+    cx.fillStyle = '#fff'; cx.font = '9px Courier New';
+    cx.fillText('HP ' + me.hp + '/' + me.mh, 16, H - 54);
+    cx.fillText('XP ' + Math.floor(me.xp / me.xn * 100) + '%', 16, H - 40);
+    cx.fillStyle = '#ffd76a'; cx.font = 'bold 11px Courier New'; cx.textAlign = 'right';
+    cx.fillText(me.z + 'z', W - 10, H - 13);
+    cx.fillStyle = '#8fd8ff'; cx.font = '10px Courier New';
+    cx.fillText(onlineCount + ' on', W - 10, H - 24);
+    cx.textAlign = 'left';
+  } else {
+    drawBar(Math.round(W * 0.25), H - 24, 160, 10, me.hp / me.mh, '#e74c3c');
+    cx.fillStyle = '#fff'; cx.font = '10px Courier New';
+    cx.fillText('HP ' + me.hp + '/' + me.mh, Math.round(W * 0.25) + 4, H - 15);
+    drawBar(Math.round(W * 0.25) + 180, H - 24, 160, 10, me.xp / me.xn, '#66d9ff');
+    cx.fillText('XP ' + me.xp + '/' + me.xn, Math.round(W * 0.25) + 184, H - 15);
+    cx.fillStyle = '#ffd76a'; cx.font = 'bold 12px Courier New';
+    cx.fillText(me.z + ' zeny', Math.round(W * 0.66), H - 13);
+    cx.fillStyle = '#8fd8ff';
+    cx.fillText(onlineCount + ' online', Math.round(W * 0.78), H - 13);
+  }
 
   drawSkillBar();
   drawRankPanel();
@@ -863,9 +915,16 @@ function drawHud() {
 
   // potion counts (keys 4/5)
   if (me.po) {
-    cx.textAlign = 'left'; cx.font = '11px Courier New';
-    cx.fillStyle = '#ff8080'; cx.fillText('[4] Red x' + me.po[0], 790, cv.height - 13);
-    cx.fillStyle = '#f0f0f0'; cx.fillText('[5] White x' + me.po[1], 870, cv.height - 13);
+    if (cv.width < 760) {
+      cx.textAlign = 'right'; cx.font = '10px Courier New';
+      cx.fillStyle = '#ff8080'; cx.fillText('R x' + me.po[0], cv.width - 10, cv.height - 50);
+      cx.fillStyle = '#f0f0f0'; cx.fillText('W x' + me.po[1], cv.width - 10, cv.height - 38);
+      cx.textAlign = 'left';
+    } else {
+      cx.textAlign = 'left'; cx.font = '11px Courier New';
+      cx.fillStyle = '#ff8080'; cx.fillText('[4] Red x' + me.po[0], Math.round(cv.width * 0.86), cv.height - 13);
+      cx.fillStyle = '#f0f0f0'; cx.fillText('[5] White x' + me.po[1], Math.round(cv.width * 0.86), cv.height - 2);
+    }
   }
   // gear display
   if (me.eq) {
@@ -900,7 +959,7 @@ function toggleRank() {
 
 function drawRankPanel() {
   if (!showRank) return;
-  const w = 460, x0 = (cv.width - w) / 2, y0 = 60;
+  const w = Math.min(460, cv.width - 12), x0 = (cv.width - w) / 2, y0 = 60;
   const rows = Math.max(roster.length, 1) + rankTop.length + 6;
   const h = Math.min(470, 70 + rows * 17);
   cx.fillStyle = 'rgba(12,8,22,.93)'; cx.fillRect(x0, y0, w, h);
@@ -951,7 +1010,7 @@ const SHOP_LIST = [
 function drawShopPanel() {
   shopRects = [];
   if (!showShop || !me) return;
-  const w = 480, x0 = (cv.width - w) / 2, y0 = 40, h = 470;
+  const w = Math.min(480, cv.width - 12), x0 = (cv.width - w) / 2, y0 = 40, h = Math.min(470, cv.height - 60);
   cx.fillStyle = 'rgba(12,8,22,.95)'; cx.fillRect(x0, y0, w, h);
   cx.strokeStyle = '#c9a227'; cx.lineWidth = 2; cx.strokeRect(x0, y0, w, h);
 
@@ -1024,7 +1083,7 @@ function drawShopPanel() {
 function drawCardBook() {
   cardRects = [];
   if (!showCards || !me) return;
-  const w = 500, x0 = (cv.width - w) / 2, y0 = 44, h = 460;
+  const w = Math.min(500, cv.width - 12), x0 = (cv.width - w) / 2, y0 = 44, h = Math.min(460, cv.height - 70);
   cx.fillStyle = 'rgba(12,8,22,.95)'; cx.fillRect(x0, y0, w, h);
   cx.strokeStyle = '#8a5cc9'; cx.lineWidth = 2; cx.strokeRect(x0, y0, w, h);
 
