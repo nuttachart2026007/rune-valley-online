@@ -96,15 +96,33 @@ const SHOP_ITEMS = {
   red: { pot: 'red', price: 15 },          white: { pot: 'white', price: 60 }
 };
 const MAX_PLUS = 10;
+
+// ---------------- CARDS (RO-style monster card drops) ----------------
+// w = effect when slotted in weapon, a = effect when slotted in armor
+const CARDS = {
+  jelly:     { name: 'Jelly Card',      w: { atk: 4 },       a: { hp: 40 },              drop: 0.05  },
+  bluejelly: { name: 'Blue Jelly Card', w: { aspd: 0.10 },   a: { regen: 3 },            drop: 0.04  },
+  mushy:     { name: 'Mushy Card',      w: { dmg: 0.12 },    a: { dr: 0.10 },            drop: 0.04  },
+  wolf:      { name: 'Dire Wolf Card',  w: { crit: 0.08 },   a: { spd: 0.10 },           drop: 0.035 },
+  skeleton:  { name: 'Skeleton Card',   w: { ls: 0.08 },     a: { dodge: 0.10 },         drop: 0.03  },
+  ghoul:     { name: 'Ghoul Card',      w: { pvp: 0.15 },    a: { hp: 100, dr: 0.05 },   drop: 0.03  },
+  direking:  { name: 'GOREHORN CARD',   w: { meteor: 0.10 }, a: { aura: 15 },            drop: 0.25  }
+};
+function cardEff(p, slot, key) {
+  const ck = slot === 'w' ? p.eq.wc : p.eq.ac;
+  if (!ck || !CARDS[ck]) return 0;
+  const eff = slot === 'w' ? CARDS[ck].w : CARDS[ck].a;
+  return eff[key] || 0;
+}
 function upgradeCost(cur) { return Math.round(100 * Math.pow(1.6, cur)); }
 function upgradeChance(cur) { return Math.pow(0.8, cur); } // 80% at +0, ~13% at +9
 function inTown(p) { return p.x >= 8 * TILE && p.x <= 18 * TILE && p.y >= 3 * TILE && p.y <= 8 * TILE; }
-function defaultEq() { return { wt: 0, wp: 0, at: 0, ap: 0, red: 0, white: 0 }; }
+function defaultEq() { return { wt: 0, wp: 0, at: 0, ap: 0, red: 0, white: 0, cards: {}, wc: null, ac: null }; }
 function recalcStats(p) {
   const st = statsForLevel(p.cls, p.level);
   const ratio = p.maxHp ? Math.min(1, p.hp / p.maxHp) : 1;
-  p.atk = st.atk + WEAPON_TIERS[p.eq.wt] + p.eq.wp * 3;
-  p.maxHp = st.maxHp + ARMOR_TIERS[p.eq.at] + p.eq.ap * 25;
+  p.atk = st.atk + WEAPON_TIERS[p.eq.wt] + p.eq.wp * 3 + cardEff(p, 'w', 'atk');
+  p.maxHp = st.maxHp + ARMOR_TIERS[p.eq.at] + p.eq.ap * 25 + cardEff(p, 'a', 'hp');
   p.hp = Math.max(1, Math.round(p.maxHp * ratio));
 }
 // skill defs: unlock level, cooldown ms, behavior handled in useSkill()
@@ -186,13 +204,52 @@ SPAWN_ZONES.forEach(z => { for (let i = 0; i < z[1]; i++) spawnMonster(z[0], z);
 bootDone = true;
 
 // ---------------- SAVES ----------------
-let saves = {};   // nameLower -> {name, cls, level, xp, zeny, pinHash, seen}
+let saves = {};   // nameLower -> {name, cls, level, xp, zeny, eq, pinHash, seen}
 let savesDirty = false;
-try { saves = JSON.parse(fs.readFileSync(SAVE_FILE, 'utf8')); console.log('[saves] loaded', Object.keys(saves).length, 'heroes'); } catch { saves = {}; }
+const dirtyNames = new Set();
+try { saves = JSON.parse(fs.readFileSync(SAVE_FILE, 'utf8')); console.log('[saves] loaded', Object.keys(saves).length, 'heroes from file'); } catch { saves = {}; }
+
+// ---- cloud database (Supabase) - active when env vars are set ----
+const DB_URL = process.env.SAVE_DB_URL || '';
+const DB_KEY = process.env.SAVE_DB_KEY || '';
+const dbOn = !!(DB_URL && DB_KEY);
+const dbHeaders = { apikey: DB_KEY, Authorization: 'Bearer ' + DB_KEY, 'Content-Type': 'application/json' };
+
+async function dbLoadAll() {
+  if (!dbOn) return;
+  try {
+    const r = await fetch(DB_URL + '/rest/v1/saves?select=name,data', { headers: dbHeaders });
+    if (!r.ok) { console.log('[db] load failed:', r.status); return; }
+    const rows = await r.json();
+    for (const row of rows) {
+      // cloud copy wins unless the local one is newer
+      if (!saves[row.name] || (row.data.seen || 0) >= (saves[row.name].seen || 0)) saves[row.name] = row.data;
+    }
+    console.log('[db] loaded', rows.length, 'heroes from cloud');
+  } catch (e) { console.log('[db] load error:', e.message); }
+}
+async function dbFlush() {
+  if (!dbOn || dirtyNames.size === 0) return;
+  const batch = [...dirtyNames].map(n => ({ name: n, data: saves[n] })).filter(r => r.data);
+  dirtyNames.clear();
+  try {
+    const r = await fetch(DB_URL + '/rest/v1/saves', {
+      method: 'POST',
+      headers: { ...dbHeaders, Prefer: 'resolution=merge-duplicates' },
+      body: JSON.stringify(batch)
+    });
+    if (!r.ok) console.log('[db] flush failed:', r.status, await r.text().catch(() => ''));
+  } catch (e) { console.log('[db] flush error:', e.message); }
+}
+dbLoadAll();
+console.log(dbOn ? '[db] cloud persistence ENABLED' : '[db] cloud persistence off (no SAVE_DB_URL/SAVE_DB_KEY) - file only');
+
 setInterval(() => {
-  if (!savesDirty) return;
-  savesDirty = false;
-  fs.writeFile(SAVE_FILE, JSON.stringify(saves), () => {});
+  if (savesDirty) {
+    savesDirty = false;
+    fs.writeFile(SAVE_FILE, JSON.stringify(saves), () => {});
+  }
+  dbFlush();
 }, 15000);
 
 function hashPin(pin) { return crypto.createHash('sha256').update(String(pin) + '|' + SECRET).digest('hex'); }
@@ -211,8 +268,10 @@ function recordOf(p) {
   return { name: p.name, cls: p.cls, level: p.level, xp: p.xp, zeny: p.zeny, eq: p.eq, pinHash: p.pinHash, seen: Date.now() };
 }
 function persist(p) {
-  saves[p.name.toLowerCase()] = recordOf(p);
+  const lower = p.name.toLowerCase();
+  saves[lower] = recordOf(p);
   savesDirty = true;
+  dirtyNames.add(lower);
 }
 function sendSave(p) {
   persist(p);
@@ -292,13 +351,36 @@ function cleanName(raw) {
 
 function isBuffed(p) { return Date.now() < p.buffUntil; }
 function baseDmg(p) { return p.atk + p.level * 1.5 + Math.random() * 6 - 2; }
-function dmgRoll(p, mult) { return Math.max(1, Math.floor(baseDmg(p) * mult * (isBuffed(p) ? 1.6 : 1))); }
+function dmgRoll(p, mult) {
+  let d = baseDmg(p) * mult * (isBuffed(p) ? 1.6 : 1);
+  d *= 1 + cardEff(p, 'w', 'dmg');                        // Mushy card: +% damage
+  if (Math.random() < cardEff(p, 'w', 'crit')) d *= 2;    // Dire Wolf card: crit
+  return Math.max(1, Math.floor(d));
+}
+function lifesteal(p, dmg) {
+  const ls = cardEff(p, 'w', 'ls');                       // Skeleton card
+  if (ls > 0 && !p.dead) p.hp = Math.min(p.maxHp, p.hp + Math.max(1, Math.floor(dmg * ls)));
+}
 
 function hitMonster(p, m, dmg) {
   m.hp -= dmg;
   m.target = p.id;
+  lifesteal(p, dmg);
   broadcast({ t: 'event', kind: 'hit', from: p.id, target: m.id, dmg, tx: m.x, ty: m.y, cls: p.cls });
   if (m.hp <= 0) killMonster(m, p);
+}
+
+// damage from a monster to a player, respecting armor cards
+function monsterHitsPlayer(m, t, rawDmg) {
+  const p = players[t.id] ? t : t; // t is the player object
+  if (Math.random() < cardEff(p, 'a', 'dodge')) {
+    broadcast({ t: 'event', kind: 'hit', from: m.id, target: p.id, dmg: 'MISS', tx: Math.round(p.x), ty: Math.round(p.y) });
+    return false;
+  }
+  const dmg = Math.max(1, Math.floor(rawDmg * (1 - cardEff(p, 'a', 'dr'))));
+  p.hp -= dmg;
+  broadcast({ t: 'event', kind: 'phit', target: p.id, from: m.id, dmg });
+  return p.hp <= 0;
 }
 
 function monstersInRange(x, y, r) {
@@ -348,8 +430,15 @@ function nearestAny(attacker, maxR) {
 }
 function hitPlayer(a, v, dmg) {
   if (!pvpTargetable(v, a)) return;
-  dmg = Math.max(1, Math.floor(dmg * 0.6)); // PvP damage reduction
+  dmg = dmg * 0.6;                                        // PvP damage reduction
+  dmg *= 1 + cardEff(a, 'w', 'pvp');                      // Ghoul card: +PvP damage
+  if (Math.random() < cardEff(v, 'a', 'dodge')) {
+    broadcast({ t: 'event', kind: 'hit', from: a.id, target: v.id, dmg: 'MISS', tx: Math.round(v.x), ty: Math.round(v.y), cls: a.cls });
+    return;
+  }
+  dmg = Math.max(1, Math.floor(dmg * (1 - cardEff(v, 'a', 'dr'))));
   v.hp -= dmg;
+  lifesteal(a, dmg);
   broadcast({ t: 'event', kind: 'hit', from: a.id, target: v.id, dmg, tx: Math.round(v.x), ty: Math.round(v.y), cls: a.cls });
   if (v.hp <= 0) {
     v.dead = true;
@@ -362,6 +451,13 @@ function hitPlayer(a, v, dmg) {
 function hitAny(a, tgt, dmg) {
   if (tgt.m) hitMonster(a, tgt.m, dmg);
   else if (tgt.p) hitPlayer(a, tgt.p, dmg);
+  // GOREHORN weapon card: chance to call a meteor strike on the target
+  if (Math.random() < cardEff(a, 'w', 'meteor')) {
+    const o = tgt.m || tgt.p;
+    broadcast({ t: 'event', kind: 'skillfx', id: a.id, skill: 'meteor', x: Math.round(o.x), y: Math.round(o.y) });
+    monstersInRange(o.x, o.y, 100).forEach(mm => hitMonster(a, mm, Math.max(1, Math.floor(baseDmg(a) * 2.5))));
+    playersInRange(a, o.x, o.y, 100).forEach(vv => hitPlayer(a, vv, baseDmg(a) * 2.5));
+  }
 }
 function tgtPos(tgt) { return tgt.m ? tgt.m : tgt.p; }
 
@@ -505,7 +601,7 @@ wss.on('connection', (ws) => {
       const now = Date.now();
       const dt = Math.min(now - me.lastMoveMsg, 400);
       me.lastMoveMsg = now;
-      const maxDist = c.speed * (dt / 16) + 12;
+      const maxDist = c.speed * (1 + cardEff(me, 'a', 'spd')) * (dt / 16) + 12;
       const nx = Number(msg.x), ny = Number(msg.y);
       if (!isFinite(nx) || !isFinite(ny)) return;
       const dx = nx - me.x, dy = ny - me.y;
@@ -521,7 +617,7 @@ wss.on('connection', (ws) => {
     if (msg.t === 'attack') {
       const c = CLASSES[me.cls];
       const now = Date.now();
-      if (now - me.lastAtk < c.cooldown) return;
+      if (now - me.lastAtk < c.cooldown * (1 - cardEff(me, 'w', 'aspd'))) return;
       me.lastAtk = now;
       broadcast({ t: 'event', kind: 'swing', id: me.id, cls: me.cls, dir: me.dir });
       const t = nearestAny(me, c.range + 16);
@@ -575,6 +671,23 @@ wss.on('connection', (ws) => {
       }
       return;
     }
+    if (msg.t === 'card') {
+      if (msg.action === 'equip') {
+        const ck = msg.card;
+        const slot = msg.slot === 'w' ? 'w' : 'a';
+        if (!CARDS[ck] || !(me.eq.cards[ck] > 0)) { send(ws, { t: 'shopnote', ok: false, msg: 'You do not own that card' }); return; }
+        const tier = slot === 'w' ? me.eq.wt : me.eq.at;
+        if (tier < 1) { send(ws, { t: 'shopnote', ok: false, msg: 'You need ' + (slot === 'w' ? 'a weapon' : 'armor') + ' to slot a card into!' }); return; }
+        const old = slot === 'w' ? me.eq.wc : me.eq.ac;
+        me.eq.cards[ck]--;
+        if (slot === 'w') me.eq.wc = ck; else me.eq.ac = ck;
+        recalcStats(me);
+        send(ws, { t: 'shopnote', ok: true, msg: CARDS[ck].name + ' slotted into ' + (slot === 'w' ? 'weapon' : 'armor') + (old ? ' (old ' + CARDS[old].name + ' destroyed)' : '') + '!' });
+        if (ck === 'direking') broadcast({ t: 'event', kind: 'boss', text: me.name + ' has slotted the GOREHORN CARD... fear them.' });
+        sendSave(me);
+      }
+      return;
+    }
     if (msg.t === 'pot') {
       const kind = msg.kind === 'white' ? 'white' : 'red';
       const now = Date.now();
@@ -624,6 +737,13 @@ function killMonster(m, killer) {
   killer.zeny += Math.round((t.zeny + Math.floor(Math.random() * t.zeny * 0.5)) * zmult);
   broadcast({ t: 'event', kind: 'mdeath', id: m.id, x: m.x, y: m.y, killer: killer.id, zeny: t.zeny });
   if (t.boss) broadcast({ t: 'event', kind: 'boss', text: killer.name + ' has slain ' + t.name + '! It will return in 10 minutes...' });
+  // card drop roll
+  const card = CARDS[m.type];
+  if (card && Math.random() < card.drop) {
+    killer.eq.cards[m.type] = (killer.eq.cards[m.type] || 0) + 1;
+    broadcast({ t: 'event', kind: 'carddrop', id: killer.id, card: card.name, boss: !!t.boss, x: Math.round(m.x), y: Math.round(m.y) });
+    if (t.boss) broadcast({ t: 'event', kind: 'boss', text: '💎 ' + killer.name + ' obtained the legendary ' + card.name + '!!!' });
+  }
   grantXp(killer, t.xp);
   sendSave(killer);
 }
@@ -670,10 +790,8 @@ setInterval(() => {
         if (!isBlocked(nx, ny)) { m.x = nx; m.y = ny; }
       } else if (now - m.lastAtk > (t.boss ? 1500 : 1200)) {
         m.lastAtk = now;
-        const dmg = Math.max(1, t.atk + Math.floor(Math.random() * 6) - 2);
-        tgt.hp -= dmg;
-        broadcast({ t: 'event', kind: 'phit', target: tgt.id, from: m.id, dmg });
-        if (tgt.hp <= 0) killPlayer(tgt, m);
+        const raw = Math.max(1, t.atk + Math.floor(Math.random() * 6) - 2);
+        if (monsterHitsPlayer(m, tgt, raw)) killPlayer(tgt, m);
       }
       // boss stomp: AoE every 6s
       if (t.boss && now - m.lastStomp > 6000) {
@@ -683,10 +801,8 @@ setInterval(() => {
           const p = players[pid];
           if (p.dead) continue;
           if (Math.hypot(p.x - m.x, p.y - m.y) < 100) {
-            const dmg = Math.max(1, Math.floor(t.atk * 0.8));
-            p.hp -= dmg; any = true;
-            broadcast({ t: 'event', kind: 'phit', target: p.id, from: m.id, dmg });
-            if (p.hp <= 0) killPlayer(p, m);
+            any = true;
+            if (monsterHitsPlayer(m, p, Math.max(1, Math.floor(t.atk * 0.8)))) killPlayer(p, m);
           }
         }
         if (any) broadcast({ t: 'event', kind: 'stomp', x: Math.round(m.x), y: Math.round(m.y) });
@@ -713,7 +829,17 @@ setInterval(() => {
       p.protectUntil = now + 4000; // brief PvP protection after respawn
       broadcast({ t: 'event', kind: 'respawn', id: p.id });
     }
-    if (!p.dead && p.hp < p.maxHp && now % 3000 < 120) p.hp = Math.min(p.maxHp, p.hp + 2 + Math.floor(p.level / 2));
+    if (!p.dead && p.hp < p.maxHp && now % 3000 < 120) p.hp = Math.min(p.maxHp, p.hp + 2 + Math.floor(p.level / 2) + cardEff(p, 'a', 'regen') * 3);
+    // GOREHORN armor card: fire aura burns nearby monsters (once per second)
+    if (!p.dead && cardEff(p, 'a', 'aura') > 0 && now % 1000 < 120) {
+      const burn = cardEff(p, 'a', 'aura');
+      monstersInRange(p.x, p.y, 90).forEach(m => {
+        m.hp -= burn;
+        m.target = p.id;
+        broadcast({ t: 'event', kind: 'hit', from: p.id, target: m.id, dmg: burn, tx: Math.round(m.x), ty: Math.round(m.y), cls: 'aura' });
+        if (m.hp <= 0) killMonster(m, p);
+      });
+    }
   }
 
   const state = {
@@ -734,7 +860,9 @@ function publicPlayer(p) {
     id: p.id, n: p.name, c: p.cls, x: Math.round(p.x), y: Math.round(p.y),
     d: p.dir, mv: p.moving, hp: p.hp, mh: p.maxHp, lv: p.level,
     xp: p.xp, xn: xpNeeded(p.level), z: p.zeny, dead: p.dead, b: isBuffed(p) ? 1 : 0,
-    eq: [p.eq.wt, p.eq.wp, p.eq.at, p.eq.ap], po: [p.eq.red, p.eq.white]
+    eq: [p.eq.wt, p.eq.wp, p.eq.at, p.eq.ap], po: [p.eq.red, p.eq.white],
+    wc: p.eq.wc, ac: p.eq.ac, cd: p.eq.cards,
+    spm: 1 + cardEff(p, 'a', 'spd'), au: p.eq.ac === 'direking' ? 1 : 0
   };
 }
 

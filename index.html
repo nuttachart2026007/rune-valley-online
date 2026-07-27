@@ -72,7 +72,7 @@
   <canvas id="game" width="960" height="600"></canvas>
   <div id="chatlog"></div>
   <input id="chatin" maxlength="120" placeholder="Say something... (Enter to send, Esc to close)">
-  <div id="hint">WASD / Arrows — move<br>SPACE — attack<br>1 / 2 / 3 — skills<br>ENTER — chat</div>
+  <div id="hint">WASD / Arrows — move<br>SPACE — attack<br>1 / 2 / 3 — skills<br>4 / 5 — potions<br>B — shop · C — cards<br>TAB — players · ENTER — chat</div>
   <div id="touchui" style="display:none;">
     <div id="joy"><div id="joyknob"></div></div>
     <div id="btnAtk" class="tbtn">ATK</div>
@@ -82,6 +82,7 @@
     <div id="btnChat" class="tbtn">&#128172;</div>
     <div id="btnRank" class="tbtn" style="right:12px; top:12px; bottom:auto; width:42px; height:42px; font-size:16px;">&#127942;</div>
     <div id="btnShop" class="tbtn" style="right:62px; top:12px; bottom:auto; width:42px; height:42px; font-size:16px;">&#128722;</div>
+    <div id="btnCards" class="tbtn" style="right:112px; top:12px; bottom:auto; width:42px; height:42px; font-size:16px;">&#127183;</div>
     <div id="btnPotR" class="tbtn" style="left:150px; bottom:44px; width:44px; height:44px; font-size:15px; background:rgba(180,60,60,.35);">&#129380;</div>
     <div id="btnPotW" class="tbtn" style="left:150px; bottom:100px; width:44px; height:44px; font-size:15px; background:rgba(220,220,220,.25);">&#129381;</div>
   </div>
@@ -127,6 +128,17 @@ const SKILL_KEYS = { swordsman: ['bash','whirl','warcry'], archer: ['dstrafe','a
 let showShop = false;
 let shopRects = [];               // clickable areas of the shop panel
 let shopNote = null;              // {msg, ok, until}
+let showCards = false;
+let cardRects = [];
+const CARD_INFO = {
+  jelly:     ['Jelly Card',      'W: +4 atk',            'A: +40 HP'],
+  bluejelly: ['Blue Jelly Card', 'W: +10% atk speed',    'A: +3 HP regen'],
+  mushy:     ['Mushy Card',      'W: +12% damage',       'A: +10% dmg reduce'],
+  wolf:      ['Dire Wolf Card',  'W: +8% critical x2',   'A: +10% move speed'],
+  skeleton:  ['Skeleton Card',   'W: +8% lifesteal',     'A: +10% dodge'],
+  ghoul:     ['Ghoul Card',      'W: +15% PvP damage',   'A: +100HP +5% reduce'],
+  direking:  ['GOREHORN CARD',   'W: 10% METEOR strike', 'A: FIRE AURA burns foes']
+};
 const SHOP_NPC = { x: 15.5 * 32, y: 5 * 32 };
 function clientInTown() { return me && me.x >= 8 * 32 && me.x <= 18 * 32 && me.y >= 3 * 32 && me.y <= 8 * 32; }
 const IS_TOUCH = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
@@ -180,6 +192,10 @@ function setupTouch() {
   document.getElementById('btnShop').addEventListener('touchstart', e => {
     e.preventDefault();
     if (me) toggleShop();
+  }, { passive: false });
+  document.getElementById('btnCards').addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (me) showCards = !showCards;
   }, { passive: false });
   bindBtn('btnPotR', () => ws.send(JSON.stringify({ t:'pot', kind:'red' })));
   bindBtn('btnPotW', () => ws.send(JSON.stringify({ t:'pot', kind:'white' })));
@@ -259,6 +275,7 @@ function onMsg(e) {
         // authoritative stats; keep local position prediction unless dead/teleported
         const dist = Math.hypot(p.x - me.x, p.y - me.y);
         me.hp = p.hp; me.mh = p.mh; me.lv = p.lv; me.xp = p.xp; me.xn = p.xn; me.z = p.z; me.b = p.b; me.eq = p.eq; me.po = p.po;
+        me.wc = p.wc; me.ac = p.ac; me.cards = p.cd; me.spm = p.spm; me.au = p.au;
         if (p.dead !== me.dead || dist > 80) { me.x = p.x; me.y = p.y; }
         me.dead = p.dead;
       } else {
@@ -338,6 +355,12 @@ function handleEvent(m) {
       log(m.text, 'lvl');
       banner = { text: m.text, until: Date.now() + 5000 };
       break;
+    case 'carddrop': {
+      fx.push({ ty:'cardpop', x: m.x, y: m.y, t: 0, boss: m.boss });
+      if (m.id === myId) log('🃏 Card drop: ' + m.card + '! Press C to view.', 'lvl');
+      else log(m.card + ' dropped!', 'sys');
+      break;
+    }
     case 'heal': {
       fx.push({ ty:'dmg', x: m.x, y: m.y - 26, val: '+' + m.amt, t: 0, col: '#7ee06a' });
       break;
@@ -433,9 +456,10 @@ window.addEventListener('keydown', e => {
   if (['1','2','3'].includes(e.key) && me && !me.dead) { ws.send(JSON.stringify({ t:'skill', n: +e.key })); return; }
   if (e.key === 'Tab') { e.preventDefault(); toggleRank(); return; }
   if ((e.key === 'b' || e.key === 'B') && me) { toggleShop(); return; }
+  if ((e.key === 'c' || e.key === 'C') && me) { showCards = !showCards; return; }
   if (e.key === '4' && me && !me.dead) { ws.send(JSON.stringify({ t:'pot', kind:'red' })); return; }
   if (e.key === '5' && me && !me.dead) { ws.send(JSON.stringify({ t:'pot', kind:'white' })); return; }
-  if (e.key === 'Escape' && showShop) { showShop = false; return; }
+  if (e.key === 'Escape' && (showShop || showCards)) { showShop = false; showCards = false; return; }
   keys[e.key.toLowerCase()] = true;
   if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(e.key.toLowerCase())) e.preventDefault();
 });
@@ -462,7 +486,9 @@ function updateMe() {
   }
   me.moving = !!(dx || dy);
   if (me.moving) {
+    const spMul = me.spm || 1;   // Dire Wolf armor card: move speed
     if (!analog && dx && dy) { dx *= 0.707; dy *= 0.707; }
+    dx *= spMul; dy *= spMul;
     if (dy < 0) me.dir = 'up'; else if (dy > 0) me.dir = 'down';
     if (dx < 0) me.dir = 'left'; else if (dx > 0) me.dir = 'right';
     const nx = me.x + dx * sp, ny = me.y + dy * sp;
@@ -502,6 +528,16 @@ function drawChar(x, y, cls, dir, moving, animT, name, hp, mh, lv, isMe, dead, b
   const bob = moving ? (Math.floor(animT / 8) % 2) : 0;
 
   if (dead) { cx.globalAlpha = 0.45; }
+  // GOREHORN fire aura (armor card)
+  if (arguments[13] && !dead) {
+    for (let k = 0; k < 6; k++) {
+      const a = (animT / 6 + k) % 6.28;
+      cx.fillStyle = 'rgba(255,' + (100 + Math.floor(60 * Math.sin(animT / 4 + k))) + ',40,' + (0.25 + 0.12 * Math.sin(animT / 3 + k * 2)) + ')';
+      cx.beginPath();
+      cx.ellipse(x + Math.cos(a) * 22, y - 6 + Math.sin(a) * 10, 5, 9 + 3 * Math.sin(animT / 5 + k), 0, 0, 7);
+      cx.fill();
+    }
+  }
   // war cry aura
   if (buffed && !dead) {
     cx.fillStyle = 'rgba(255,215,106,' + (0.18 + 0.1 * Math.sin(animT / 5)) + ')';
@@ -767,6 +803,22 @@ function drawFx() {
         fx.push({ ty:'poof', x: f.x, y: f.y, t: 0 });
       }
       if (f.t > 14) fx.splice(i, 1);
+    } else if (f.ty === 'cardpop') {
+      const rise = f.t * 1.2;
+      cx.save();
+      cx.translate(f.x, f.y - 14 - rise);
+      cx.rotate(Math.sin(f.t / 5) * 0.2);
+      cx.fillStyle = f.boss ? '#ffd76a' : '#c9a2ff';
+      cx.fillRect(-7, -10, 14, 20);
+      cx.strokeStyle = '#2a2030'; cx.lineWidth = 1.5; cx.strokeRect(-7, -10, 14, 20);
+      cx.fillStyle = '#2a2030'; cx.fillRect(-4, -6, 8, 8);
+      cx.restore();
+      if (f.boss) {
+        cx.strokeStyle = 'rgba(255,215,106,' + Math.max(0, 1 - f.t / 40) + ')';
+        cx.lineWidth = 2;
+        cx.beginPath(); cx.arc(f.x, f.y - 10, f.t * 3, 0, 7); cx.stroke();
+      }
+      if (f.t > 45) fx.splice(i, 1);
     } else if (f.ty === 'rain') {
       const a = f.t / 20;
       cx.strokeStyle = 'rgba(230,220,170,' + Math.max(0, 1 - a) + ')';
@@ -807,6 +859,7 @@ function drawHud() {
   drawSkillBar();
   drawRankPanel();
   drawShopPanel();
+  drawCardBook();
 
   // potion counts (keys 4/5)
   if (me.po) {
@@ -968,17 +1021,74 @@ function drawShopPanel() {
   shopRects.push(cxr);
 }
 
+function drawCardBook() {
+  cardRects = [];
+  if (!showCards || !me) return;
+  const w = 500, x0 = (cv.width - w) / 2, y0 = 44, h = 460;
+  cx.fillStyle = 'rgba(12,8,22,.95)'; cx.fillRect(x0, y0, w, h);
+  cx.strokeStyle = '#8a5cc9'; cx.lineWidth = 2; cx.strokeRect(x0, y0, w, h);
+
+  cx.textAlign = 'center'; cx.font = 'bold 14px Courier New'; cx.fillStyle = '#c9a2ff';
+  cx.fillText('~ CARD BOOK ~', cv.width / 2, y0 + 22);
+  cx.font = '10px Courier New'; cx.fillStyle = '#8fd8ff';
+  const wcTxt = me.wc ? CARD_INFO[me.wc][0] : 'empty';
+  const acTxt = me.ac ? CARD_INFO[me.ac][0] : 'empty';
+  cx.fillText('Weapon slot: ' + wcTxt + '   |   Armor slot: ' + acTxt, cv.width / 2, y0 + 40);
+
+  let y = y0 + 58;
+  const cards = me.cards || {};
+  for (const key of Object.keys(CARD_INFO)) {
+    const info = CARD_INFO[key];
+    const owned = cards[key] || 0;
+    const isBoss = key === 'direking';
+    cx.textAlign = 'left'; cx.font = 'bold 11px Courier New';
+    cx.fillStyle = isBoss ? '#ffd76a' : owned > 0 ? '#e8e4f5' : '#5a5470';
+    cx.fillText(info[0] + '  x' + owned, x0 + 16, y + 12);
+    cx.font = '10px Courier New'; cx.fillStyle = owned > 0 ? '#a89bc9' : '#4a4560';
+    cx.fillText(info[1] + '   ' + info[2], x0 + 16, y + 26);
+    if (owned > 0) {
+      const b1 = { x: x0 + w - 150, y: y + 2, w: 62, h: 24, act: 'equip', card: key, slot: 'w' };
+      const b2 = { x: x0 + w - 80,  y: y + 2, w: 62, h: 24, act: 'equip', card: key, slot: 'a' };
+      for (const [b, lbl] of [[b1, '> WPN'], [b2, '> ARM']]) {
+        cx.fillStyle = '#3a2c56'; cx.fillRect(b.x, b.y, b.w, b.h);
+        cx.strokeStyle = '#8a6ab0'; cx.strokeRect(b.x + .5, b.y + .5, b.w - 1, b.h - 1);
+        cx.textAlign = 'center'; cx.fillStyle = '#e0d0f5'; cx.font = 'bold 10px Courier New';
+        cx.fillText(lbl, b.x + b.w / 2, b.y + 16);
+        cardRects.push(b);
+      }
+    }
+    y += 46;
+  }
+  cx.textAlign = 'center'; cx.font = '10px Courier New'; cx.fillStyle = '#6a6080';
+  cx.fillText('slotting a card replaces (destroys) the old one · press C or ESC to close', cv.width / 2, y0 + h - 10);
+  const cxr = { x: x0 + w - 26, y: y0 + 6, w: 20, h: 20, act: 'close' };
+  cx.fillStyle = '#5c3a3a'; cx.fillRect(cxr.x, cxr.y, cxr.w, cxr.h);
+  cx.fillStyle = '#ffb0b0'; cx.font = 'bold 12px Courier New'; cx.fillText('X', cxr.x + 10, cxr.y + 14);
+  cardRects.push(cxr);
+}
+
 cv.addEventListener('pointerdown', e => {
-  if (!me || !showShop) return;
+  if (!me || (!showShop && !showCards)) return;
   const r = cv.getBoundingClientRect();
   const px = (e.clientX - r.left) * (cv.width / r.width);
   const py = (e.clientY - r.top) * (cv.height / r.height);
-  for (const rc of shopRects) {
-    if (px >= rc.x && px <= rc.x + rc.w && py >= rc.y && py <= rc.y + rc.h) {
-      if (rc.act === 'close') { showShop = false; return; }
-      if (rc.act === 'buy') ws.send(JSON.stringify({ t:'shop', action:'buy', item: rc.item }));
-      if (rc.act === 'upgrade') ws.send(JSON.stringify({ t:'shop', action:'upgrade', slot: rc.slot }));
-      return;
+  if (showShop) {
+    for (const rc of shopRects) {
+      if (px >= rc.x && px <= rc.x + rc.w && py >= rc.y && py <= rc.y + rc.h) {
+        if (rc.act === 'close') { showShop = false; return; }
+        if (rc.act === 'buy') ws.send(JSON.stringify({ t:'shop', action:'buy', item: rc.item }));
+        if (rc.act === 'upgrade') ws.send(JSON.stringify({ t:'shop', action:'upgrade', slot: rc.slot }));
+        return;
+      }
+    }
+  }
+  if (showCards) {
+    for (const rc of cardRects) {
+      if (px >= rc.x && px <= rc.x + rc.w && py >= rc.y && py <= rc.y + rc.h) {
+        if (rc.act === 'close') { showCards = false; return; }
+        if (rc.act === 'equip') ws.send(JSON.stringify({ t:'card', action:'equip', card: rc.card, slot: rc.slot }));
+        return;
+      }
     }
   }
 });
@@ -1047,9 +1157,9 @@ function frame() {
   for (const id in mobs) ents.push({ y: mobs[id].cur.y, draw: () => drawMob(mobs[id], tick) });
   for (const id in others) {
     const o = others[id]; const t = o.tgt; if (!t) continue;
-    ents.push({ y: o.cur.y, draw: () => { drawChar(o.cur.x, o.cur.y, t.c, t.d, t.mv, o.anim, t.n, t.hp, t.mh, t.lv, false, t.dead, t.b); drawBubble(id, o.cur.x, o.cur.y); } });
+    ents.push({ y: o.cur.y, draw: () => { drawChar(o.cur.x, o.cur.y, t.c, t.d, t.mv, o.anim, t.n, t.hp, t.mh, t.lv, false, t.dead, t.b, t.au); drawBubble(id, o.cur.x, o.cur.y); } });
   }
-  ents.push({ y: me.y, draw: () => { drawChar(me.x, me.y, me.c, me.dir, me.moving, tick, me.n, me.hp, me.mh, me.lv, true, me.dead, me.b); drawBubble(myId, me.x, me.y); } });
+  ents.push({ y: me.y, draw: () => { drawChar(me.x, me.y, me.c, me.dir, me.moving, tick, me.n, me.hp, me.mh, me.lv, true, me.dead, me.b, me.au); drawBubble(myId, me.x, me.y); } });
   // trees drawn on top of ground but below entities standing lower — draw canopy after entities for simple depth
   ents.sort((a, b) => a.y - b.y).forEach(e => e.draw());
 
