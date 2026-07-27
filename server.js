@@ -93,15 +93,27 @@ const CLASSES = {
 };
 
 // ---------------- SHOP & EQUIPMENT ----------------
-const WEAPON_TIERS = [0, 5, 12, 25];    // atk bonus per tier
-const ARMOR_TIERS  = [0, 40, 100, 220]; // max HP bonus per tier
-const TIER_NAMES_W = ['-', 'Iron', 'Steel', 'Runic'];
-const TIER_NAMES_A = ['-', 'Leather', 'Chain', 'Runic'];
+const WEAPON_TIERS = [0, 5, 12, 25, 40, 60];          // atk bonus per tier (4-5 drop only)
+const ARMOR_TIERS  = [0, 40, 100, 220, 350, 520];     // max HP bonus
+const SHIELD_TIERS = [0, 0.04, 0.08, 0.12, 0.18, 0.25]; // damage reduction
+const ACC_TIERS    = [0, 0.03, 0.05, 0.08, 0.12, 0.16]; // +damage%
+const TIER_NAMES_W = ['-', 'Iron', 'Steel', 'Runic', 'Valkyrie', 'Celestial'];
+const TIER_NAMES_A = ['-', 'Leather', 'Chain', 'Runic', 'Valkyrie', 'Celestial'];
+const TIER_NAMES_S = ['-', 'Buckler', 'Kite', 'Tower', 'Valkyrie', 'Celestial'];
+const TIER_NAMES_X = ['-', 'Ring', 'Amulet', 'Talisman', 'Relic', 'Celestial'];
+const TIER_NAMES = { w: TIER_NAMES_W, a: TIER_NAMES_A, s: TIER_NAMES_S, x: TIER_NAMES_X };
+const KIND_NAMES = { w: 'Weapon', a: 'Armor', s: 'Shield', x: 'Accessory' };
+const INV_MAX = 24;
+function newItem(kind, tier) { return { id: Math.random().toString(36).slice(2, 9), k: kind, t: tier, p: 0, c: null }; }
+function itemName(it) { return TIER_NAMES[it.k][it.t] + ' ' + KIND_NAMES[it.k] + (it.p ? ' +' + it.p : ''); }
 const SHOP_ITEMS = {
-  w1: { slot: 'w', tier: 1, price: 200 },  w2: { slot: 'w', tier: 2, price: 800 },  w3: { slot: 'w', tier: 3, price: 2500 },
-  a1: { slot: 'a', tier: 1, price: 200 },  a2: { slot: 'a', tier: 2, price: 800 },  a3: { slot: 'a', tier: 3, price: 2500 },
+  w1: { kind: 'w', tier: 1, price: 200 },  w2: { kind: 'w', tier: 2, price: 800 },  w3: { kind: 'w', tier: 3, price: 2500 },
+  a1: { kind: 'a', tier: 1, price: 200 },  a2: { kind: 'a', tier: 2, price: 800 },  a3: { kind: 'a', tier: 3, price: 2500 },
+  s1: { kind: 's', tier: 1, price: 200 },  s2: { kind: 's', tier: 2, price: 800 },
   red: { pot: 'red', price: 15 },          white: { pot: 'white', price: 60 }
 };
+// stat effects per point: STR +1 atk | VIT +8 HP, +0.2 regen | AGI +0.5% aspd, +0.2% dodge | DEX +0.4% crit | INT +0.8% damage
+const STAT_KEYS = ['str', 'vit', 'agi', 'dex', 'int'];
 const MAX_PLUS = 10;
 
 // ---------------- CARDS (RO-style monster card drops) ----------------
@@ -118,21 +130,47 @@ const CARDS = {
   siren:     { name: 'Siren Card',      w: { aspd: 0.12 },   a: { regen: 5 },            drop: 0.035 },
   solaris:   { name: 'SOLARIS CARD',    w: { solar: 0.15 },  a: { hp: 200, regen: 5, spd: 0.05 }, drop: 0.30 }
 };
-function cardEff(p, slot, key) {
-  const ck = slot === 'w' ? p.eq.wc : p.eq.ac;
-  if (!ck || !CARDS[ck]) return 0;
-  const eff = slot === 'w' ? CARDS[ck].w : CARDS[ck].a;
-  return eff[key] || 0;
+function cardEff(p, side, key) {
+  // weapon+accessory sockets use card w-effects; armor+shield sockets use a-effects
+  let v = 0;
+  for (const sl of (side === 'w' ? ['w', 'x'] : ['a', 's'])) {
+    const id = p.eq.eqp ? p.eq.eqp[sl] : null;
+    if (!id) continue;
+    const it = p.eq.inv.find(i => i.id === id);
+    if (it && it.c && CARDS[it.c]) v += (side === 'w' ? CARDS[it.c].w : CARDS[it.c].a)[key] || 0;
+  }
+  return v;
 }
 function upgradeCost(cur) { return Math.round(100 * Math.pow(1.6, cur)); }
 function upgradeChance(cur) { return Math.pow(0.8, cur); } // 80% at +0, ~13% at +9
 function inTown(p) { return p.x >= 8 * TILE && p.x <= 18 * TILE && p.y >= 3 * TILE && p.y <= 8 * TILE; }
-function defaultEq() { return { wt: 0, wp: 0, at: 0, ap: 0, red: 0, white: 0, cards: {}, wc: null, ac: null }; }
+function defaultEq() { return { red: 0, white: 0, cards: {}, inv: [], eqp: { w: null, a: null, s: null, x: null } }; }
+function migrateEq(eq) {
+  if (!eq) return defaultEq();
+  if (eq.inv) { eq.eqp = eq.eqp || { w: null, a: null, s: null, x: null }; eq.cards = eq.cards || {}; return eq; }
+  // legacy format -> item inventory
+  const ne = { red: eq.red || 0, white: eq.white || 0, cards: eq.cards || {}, inv: [], eqp: { w: null, a: null, s: null, x: null } };
+  if (eq.wt) { const it = newItem('w', eq.wt); it.p = eq.wp || 0; it.c = eq.wc || null; ne.inv.push(it); ne.eqp.w = it.id; }
+  if (eq.at) { const it = newItem('a', eq.at); it.p = eq.ap || 0; it.c = eq.ac || null; ne.inv.push(it); ne.eqp.a = it.id; }
+  return ne;
+}
+function equippedItem(p, slot) {
+  const id = p.eq.eqp[slot];
+  return id ? p.eq.inv.find(i => i.id === id) || null : null;
+}
 function recalcStats(p) {
-  const st = statsForLevel(p.cls, p.level);
+  const base = statsForLevel(p.cls, p.level);
   const ratio = p.maxHp ? Math.min(1, p.hp / p.maxHp) : 1;
-  p.atk = st.atk + WEAPON_TIERS[p.eq.wt] + p.eq.wp * 3 + cardEff(p, 'w', 'atk') + (p.adv ? 5 : 0);
-  p.maxHp = st.maxHp + ARMOR_TIERS[p.eq.at] + p.eq.ap * 25 + cardEff(p, 'a', 'hp') + (p.adv ? 60 : 0);
+  const w = equippedItem(p, 'w'), a = equippedItem(p, 'a'), s = equippedItem(p, 's'), x = equippedItem(p, 'x');
+  const st = p.st;
+  p.atk = base.atk + st.str + (w ? WEAPON_TIERS[w.t] + w.p * 3 : 0) + cardEff(p, 'w', 'atk') + (p.adv ? 5 : 0);
+  p.maxHp = base.maxHp + st.vit * 8 + (a ? ARMOR_TIERS[a.t] + a.p * 25 : 0) + (s ? s.p * 20 : 0) + cardEff(p, 'a', 'hp') + (p.adv ? 60 : 0);
+  p.drBonus = (s ? SHIELD_TIERS[s.t] + s.p * 0.005 : 0);
+  p.dmgBonus = (x ? ACC_TIERS[x.t] + x.p * 0.005 : 0) + st.int * 0.008;
+  p.aspdBonus = st.agi * 0.005;
+  p.dodgeBonus = st.agi * 0.002;
+  p.critBonus = st.dex * 0.004;
+  p.regenBonus = st.vit * 0.2;
   p.hp = Math.max(1, Math.round(p.maxHp * ratio));
 }
 // skill defs: unlock level, cooldown ms, behavior handled in useSkill()
@@ -297,7 +335,10 @@ function verifyToken(token) {
   try { return JSON.parse(Buffer.from(data, 'base64url').toString('utf8')); } catch { return null; }
 }
 function recordOf(p) {
-  return { name: p.name, cls: p.cls, level: p.level, xp: p.xp, zeny: p.zeny, eq: p.eq, adv: p.adv || 0, pinHash: p.pinHash, seen: Date.now() };
+  return { name: p.name, cls: p.cls, level: p.level, xp: p.xp, zeny: p.zeny, eq: p.eq, st: p.st, sp: p.sp, adv: p.adv || 0, pinHash: p.pinHash, seen: Date.now() };
+}
+function sendInv(p) {
+  send(p.ws, { t: 'inv', inv: p.eq.inv, eqp: p.eq.eqp, st: p.st, sp: p.sp });
 }
 function persist(p) {
   const lower = p.name.toLowerCase();
@@ -329,7 +370,9 @@ function makePlayer(ws, name, cls, pinHash, restore) {
     dir: 'down', moving: false,
     hp: st.maxHp, maxHp: st.maxHp, atk: st.atk,
     level, xp: restore ? restore.xp : 0, zeny: restore ? restore.zeny : 0,
-    eq: (restore && restore.eq) ? { ...defaultEq(), ...restore.eq } : defaultEq(),
+    eq: migrateEq(restore ? restore.eq : null),
+    st: (restore && restore.st) ? { str: 0, vit: 0, agi: 0, dex: 0, int: 0, ...restore.st } : { str: 0, vit: 0, agi: 0, dex: 0, int: 0 },
+    sp: (restore && restore.sp !== undefined) ? restore.sp : Math.max(0, (level - 1) * 3),
     adv: restore ? (restore.adv || 0) : 0,
     lastAtk: 0, lastPot: 0, skillCd: [0, 0, 0, 0, 0, 0], buffUntil: 0, zenyBuffUntil: 0,
     quickenUntil: 0, tsUntil: 0,
@@ -350,6 +393,7 @@ function grantXp(p, amount) {
     p.xp -= xpNeeded(p.level);
     p.level++;
     leveled = true;
+    p.sp += 3; // stat points per level
     // 2nd job advancement at level 30
     if (p.level >= 30 && !p.adv) {
       p.adv = 1;
@@ -393,9 +437,9 @@ function isBuffed(p) { return Date.now() < p.buffUntil; }
 function baseDmg(p) { return p.atk + p.level * 1.5 + Math.random() * 6 - 2; }
 function dmgRoll(p, mult) {
   let d = baseDmg(p) * mult * (isBuffed(p) ? 1.6 : 1);
-  d *= 1 + cardEff(p, 'w', 'dmg');                        // Mushy card: +% damage
+  d *= 1 + cardEff(p, 'w', 'dmg') + (p.dmgBonus || 0);    // Mushy card + accessory + INT
   if (Date.now() < p.tsUntil) d *= 1.3;                   // True Sight buff
-  const critCh = cardEff(p, 'w', 'crit') + (Date.now() < p.tsUntil ? 0.15 : 0);
+  const critCh = cardEff(p, 'w', 'crit') + (p.critBonus || 0) + (Date.now() < p.tsUntil ? 0.15 : 0);
   if (Math.random() < critCh) d *= 2;                     // crit
   return Math.max(1, Math.floor(d));
 }
@@ -414,12 +458,13 @@ function hitMonster(p, m, dmg) {
 
 // damage from a monster to a player, respecting armor cards
 function monsterHitsPlayer(m, t, rawDmg) {
-  const p = players[t.id] ? t : t; // t is the player object
-  if (Math.random() < cardEff(p, 'a', 'dodge')) {
+  const p = t;
+  if (Math.random() < cardEff(p, 'a', 'dodge') + (p.dodgeBonus || 0)) {
     broadcast({ t: 'event', kind: 'hit', from: m.id, target: p.id, dmg: 'MISS', tx: Math.round(p.x), ty: Math.round(p.y) });
     return false;
   }
-  const dmg = Math.max(1, Math.floor(rawDmg * (1 - cardEff(p, 'a', 'dr'))));
+  const dr = Math.min(0.75, cardEff(p, 'a', 'dr') + (p.drBonus || 0));
+  const dmg = Math.max(1, Math.floor(rawDmg * (1 - dr)));
   p.hp -= dmg;
   broadcast({ t: 'event', kind: 'phit', target: p.id, from: m.id, dmg });
   return p.hp <= 0;
@@ -474,11 +519,12 @@ function hitPlayer(a, v, dmg) {
   if (!pvpTargetable(v, a)) return;
   dmg = dmg * 0.6;                                        // PvP damage reduction
   dmg *= 1 + cardEff(a, 'w', 'pvp');                      // Ghoul card: +PvP damage
-  if (Math.random() < cardEff(v, 'a', 'dodge')) {
+  if (Math.random() < cardEff(v, 'a', 'dodge') + (v.dodgeBonus || 0)) {
     broadcast({ t: 'event', kind: 'hit', from: a.id, target: v.id, dmg: 'MISS', tx: Math.round(v.x), ty: Math.round(v.y), cls: a.cls });
     return;
   }
-  dmg = Math.max(1, Math.floor(dmg * (1 - cardEff(v, 'a', 'dr'))));
+  const vdr = Math.min(0.75, cardEff(v, 'a', 'dr') + (v.drBonus || 0));
+  dmg = Math.max(1, Math.floor(dmg * (1 - vdr)));
   v.hp -= dmg;
   lifesteal(a, dmg);
   broadcast({ t: 'event', kind: 'hit', from: a.id, target: v.id, dmg, tx: Math.round(v.x), ty: Math.round(v.y), cls: a.cls });
@@ -702,6 +748,7 @@ wss.on('connection', (ws) => {
         restored: !!restore
       });
       sendSave(me);
+      sendInv(me);
       broadcast({ t: 'event', kind: 'join', name: me.name, id: me.id });
       console.log(`[join] ${me.name} Lv${me.level} (${me.cls})${restore ? ' [restored]' : ''} - ${Object.keys(players).length} online`);
       return;
@@ -730,7 +777,7 @@ wss.on('connection', (ws) => {
     if (msg.t === 'attack') {
       const c = CLASSES[me.cls];
       const now = Date.now();
-      if (now - me.lastAtk < c.cooldown * (1 - cardEff(me, 'w', 'aspd')) * (now < me.quickenUntil ? 0.6 : 1)) return;
+      if (now - me.lastAtk < c.cooldown * Math.max(0.35, 1 - cardEff(me, 'w', 'aspd') - (me.aspdBonus || 0)) * (now < me.quickenUntil ? 0.6 : 1)) return;
       me.lastAtk = now;
       broadcast({ t: 'event', kind: 'swing', id: me.id, cls: me.cls, dir: me.dir });
       const t = nearestAny(me, c.range + 16);
@@ -750,55 +797,79 @@ wss.on('connection', (ws) => {
           me.eq[it.pot]++;
           send(ws, { t: 'shopnote', ok: true, msg: 'Bought 1 ' + (it.pot === 'red' ? 'Red' : 'White') + ' Potion' });
         } else {
-          const curTier = it.slot === 'w' ? me.eq.wt : me.eq.at;
-          if (curTier >= it.tier) { send(ws, { t: 'shopnote', ok: false, msg: 'You already own this tier or better' }); return; }
+          if (me.eq.inv.length >= INV_MAX) { send(ws, { t: 'shopnote', ok: false, msg: 'Inventory full!' }); return; }
           me.zeny -= it.price;
-          if (it.slot === 'w') { me.eq.wt = it.tier; me.eq.wp = 0; }
-          else { me.eq.at = it.tier; me.eq.ap = 0; }
-          recalcStats(me);
-          send(ws, { t: 'shopnote', ok: true, msg: 'Equipped ' + (it.slot === 'w' ? TIER_NAMES_W[it.tier] + ' Weapon' : TIER_NAMES_A[it.tier] + ' Armor') + '!' });
+          const item = newItem(it.kind, it.tier);
+          me.eq.inv.push(item);
+          send(ws, { t: 'shopnote', ok: true, msg: 'Bought ' + itemName(item) + ' - equip it in [E]' });
+          sendInv(me);
         }
         sendSave(me);
         return;
       }
-      if (msg.action === 'upgrade') {
-        const slot = msg.slot === 'w' ? 'w' : 'a';
-        const tier = slot === 'w' ? me.eq.wt : me.eq.at;
-        const cur = slot === 'w' ? me.eq.wp : me.eq.ap;
-        if (tier < 1) { send(ws, { t: 'shopnote', ok: false, msg: 'Buy equipment first!' }); return; }
-        if (cur >= MAX_PLUS) { send(ws, { t: 'shopnote', ok: false, msg: 'Already at max +' + MAX_PLUS + '!' }); return; }
-        const cost = upgradeCost(cur);
-        if (me.zeny < cost) { send(ws, { t: 'shopnote', ok: false, msg: 'Need ' + cost + 'z to attempt +' + (cur + 1) }); return; }
+      if (msg.action === 'upgrade') { send(ws, { t: 'shopnote', ok: false, msg: 'Upgrading moved to the Equipment window - press E' }); return; }
+      return;
+    }
+    if (msg.t === 'item') {
+      const findItem = id => me.eq.inv.find(i => i.id === id);
+      if (msg.action === 'equip') {
+        const it = findItem(msg.item);
+        if (!it) return;
+        me.eq.eqp[it.k] = it.id;
+        recalcStats(me);
+        send(ws, { t: 'shopnote', ok: true, msg: 'Equipped ' + itemName(it) });
+      } else if (msg.action === 'unequip') {
+        if (['w','a','s','x'].includes(msg.slot)) { me.eq.eqp[msg.slot] = null; recalcStats(me); }
+      } else if (msg.action === 'drop') {
+        const it = findItem(msg.item);
+        if (!it) return;
+        if (it.c) { me.eq.cards[it.c] = (me.eq.cards[it.c] || 0) + 1; } // card returned before item destroyed
+        for (const sl of ['w','a','s','x']) if (me.eq.eqp[sl] === it.id) me.eq.eqp[sl] = null;
+        me.eq.inv = me.eq.inv.filter(i => i.id !== it.id);
+        recalcStats(me);
+        send(ws, { t: 'shopnote', ok: true, msg: itemName(it) + ' discarded' + (it.c ? ' (card returned)' : '') });
+      } else if (msg.action === 'setcard') {
+        const it = findItem(msg.item);
+        const ck = msg.card;
+        if (!it || !CARDS[ck] || !(me.eq.cards[ck] > 0)) { send(ws, { t: 'shopnote', ok: false, msg: 'Card not available' }); return; }
+        if (it.c) me.eq.cards[it.c] = (me.eq.cards[it.c] || 0) + 1; // swap: old card back to bag
+        me.eq.cards[ck]--;
+        it.c = ck;
+        recalcStats(me);
+        send(ws, { t: 'shopnote', ok: true, msg: CARDS[ck].name + ' socketed into ' + itemName(it) });
+        if (ck === 'direking' || ck === 'solaris') broadcast({ t: 'event', kind: 'boss', text: me.name + ' socketed the ' + CARDS[ck].name + '!' });
+      } else if (msg.action === 'delcard') {
+        const it = findItem(msg.item);
+        if (!it || !it.c) return;
+        me.eq.cards[it.c] = (me.eq.cards[it.c] || 0) + 1;
+        send(ws, { t: 'shopnote', ok: true, msg: CARDS[it.c].name + ' removed and returned to your card bag' });
+        it.c = null;
+        recalcStats(me);
+      } else if (msg.action === 'upgrade') {
+        const it = findItem(msg.item);
+        if (!it) return;
+        if (it.p >= MAX_PLUS) { send(ws, { t: 'shopnote', ok: false, msg: 'Already at max +' + MAX_PLUS }); return; }
+        const cost = upgradeCost(it.p);
+        if (me.zeny < cost) { send(ws, { t: 'shopnote', ok: false, msg: 'Need ' + cost + 'z' }); return; }
         me.zeny -= cost;
-        if (Math.random() < upgradeChance(cur)) {
-          if (slot === 'w') me.eq.wp++; else me.eq.ap++;
+        if (Math.random() < upgradeChance(it.p)) {
+          it.p++;
           recalcStats(me);
-          const plus = slot === 'w' ? me.eq.wp : me.eq.ap;
-          send(ws, { t: 'shopnote', ok: true, msg: 'SUCCESS! ' + (slot === 'w' ? 'Weapon' : 'Armor') + ' is now +' + plus + '!' });
-          if (plus >= 8) broadcast({ t: 'event', kind: 'boss', text: me.name + ' upgraded their ' + (slot === 'w' ? 'weapon' : 'armor') + ' to +' + plus + '!' });
+          send(ws, { t: 'shopnote', ok: true, msg: 'SUCCESS! ' + itemName(it) + '!' });
+          if (it.p >= 8) broadcast({ t: 'event', kind: 'boss', text: me.name + ' refined ' + itemName(it) + '!' });
         } else {
           send(ws, { t: 'shopnote', ok: false, msg: 'FAILED... ' + cost + 'z gone. The anvil laughs.' });
         }
-        sendSave(me);
-        return;
+      } else if (msg.action === 'statup') {
+        const k = msg.stat;
+        if (STAT_KEYS.includes(k) && me.sp > 0) { me.st[k]++; me.sp--; recalcStats(me); }
       }
+      sendInv(me);
+      sendSave(me);
       return;
     }
     if (msg.t === 'card') {
-      if (msg.action === 'equip') {
-        const ck = msg.card;
-        const slot = msg.slot === 'w' ? 'w' : 'a';
-        if (!CARDS[ck] || !(me.eq.cards[ck] > 0)) { send(ws, { t: 'shopnote', ok: false, msg: 'You do not own that card' }); return; }
-        const tier = slot === 'w' ? me.eq.wt : me.eq.at;
-        if (tier < 1) { send(ws, { t: 'shopnote', ok: false, msg: 'You need ' + (slot === 'w' ? 'a weapon' : 'armor') + ' to slot a card into!' }); return; }
-        const old = slot === 'w' ? me.eq.wc : me.eq.ac;
-        me.eq.cards[ck]--;
-        if (slot === 'w') me.eq.wc = ck; else me.eq.ac = ck;
-        recalcStats(me);
-        send(ws, { t: 'shopnote', ok: true, msg: CARDS[ck].name + ' slotted into ' + (slot === 'w' ? 'weapon' : 'armor') + (old ? ' (old ' + CARDS[old].name + ' destroyed)' : '') + '!' });
-        if (ck === 'direking') broadcast({ t: 'event', kind: 'boss', text: me.name + ' has slotted the GOREHORN CARD... fear them.' });
-        sendSave(me);
-      }
+      send(ws, { t: 'shopnote', ok: false, msg: 'Cards are now socketed via the Equipment window - press E' });
       return;
     }
     if (msg.t === 'pot') {
@@ -850,6 +921,21 @@ function killMonster(m, killer) {
   killer.zeny += Math.round((t.zeny + Math.floor(Math.random() * t.zeny * 0.5)) * zmult);
   broadcast({ t: 'event', kind: 'mdeath', id: m.id, x: m.x, y: m.y, killer: killer.id, zeny: t.zeny });
   if (t.boss) broadcast({ t: 'event', kind: 'boss', text: killer.name + ' has slain ' + t.name + '! It will return in 10 minutes...' });
+  // rare equipment drop (drop-gear beats shop gear: tiers scale with monster level)
+  const dropCh = t.mvp ? 0.5 : t.boss ? 0.25 : 0.02;
+  if (Math.random() < dropCh && killer.eq.inv.length < INV_MAX) {
+    const kind = ['w', 'a', 's', 'x'][Math.floor(Math.random() * 4)];
+    let tier;
+    if (t.lvl >= 40) tier = Math.random() < 0.5 ? 5 : 4;
+    else if (t.lvl >= 16) tier = Math.random() < 0.5 ? 4 : 3;
+    else if (t.lvl >= 6) tier = Math.random() < 0.6 ? 3 : 2;
+    else tier = Math.random() < 0.6 ? 2 : 1;
+    const it = newItem(kind, tier);
+    killer.eq.inv.push(it);
+    broadcast({ t: 'event', kind: 'lootdrop', id: killer.id, item: itemName(it), tier, x: Math.round(m.x), y: Math.round(m.y) });
+    if (tier >= 4) broadcast({ t: 'event', kind: 'boss', text: '✨ ' + killer.name + ' looted ' + itemName(it) + '!' });
+    sendInv(killer);
+  }
   // card drop roll
   const card = CARDS[m.type];
   if (card && Math.random() < card.drop) {
@@ -942,7 +1028,7 @@ setInterval(() => {
       p.protectUntil = now + 4000; // brief PvP protection after respawn
       broadcast({ t: 'event', kind: 'respawn', id: p.id });
     }
-    if (!p.dead && p.hp < p.maxHp && now % 3000 < 120) p.hp = Math.min(p.maxHp, p.hp + 2 + Math.floor(p.level / 2) + cardEff(p, 'a', 'regen') * 3);
+    if (!p.dead && p.hp < p.maxHp && now % 3000 < 120) p.hp = Math.min(p.maxHp, p.hp + 2 + Math.floor(p.level / 2) + cardEff(p, 'a', 'regen') * 3 + Math.round((p.regenBonus || 0) * 3));
     // GOREHORN armor card: fire aura burns nearby monsters (once per second)
     if (!p.dead && cardEff(p, 'a', 'aura') > 0 && now % 1000 < 120) {
       const burn = cardEff(p, 'a', 'aura');
@@ -969,13 +1055,14 @@ setInterval(() => {
 setInterval(() => { for (const id in players) sendSave(players[id]); }, 30000);
 
 function publicPlayer(p) {
+  const w = equippedItem(p, 'w'), a = equippedItem(p, 'a');
   return {
     id: p.id, n: p.name, c: p.cls, x: Math.round(p.x), y: Math.round(p.y),
     d: p.dir, mv: p.moving, hp: p.hp, mh: p.maxHp, lv: p.level,
     xp: p.xp, xn: xpNeeded(p.level), z: p.zeny, dead: p.dead, b: isBuffed(p) ? 1 : 0,
-    eq: [p.eq.wt, p.eq.wp, p.eq.at, p.eq.ap], po: [p.eq.red, p.eq.white],
-    wc: p.eq.wc, ac: p.eq.ac, cd: p.eq.cards, adv: p.adv || 0,
-    spm: 1 + cardEff(p, 'a', 'spd'), au: p.eq.ac === 'direking' ? 1 : 0
+    eq: [w ? w.t : 0, w ? w.p : 0, a ? a.t : 0, a ? a.p : 0], po: [p.eq.red, p.eq.white],
+    wc: w ? w.c : null, ac: a ? a.c : null, cd: p.eq.cards, adv: p.adv || 0,
+    spm: 1 + cardEff(p, 'a', 'spd'), au: cardEff(p, 'a', 'aura') > 0 ? 1 : 0
   };
 }
 

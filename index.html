@@ -101,6 +101,8 @@
     <div id="btnRank" class="tbtn" style="right:12px; top:12px; bottom:auto; width:42px; height:42px; font-size:16px;">&#127942;</div>
     <div id="btnShop" class="tbtn" style="right:62px; top:12px; bottom:auto; width:42px; height:42px; font-size:16px;">&#128722;</div>
     <div id="btnCards" class="tbtn" style="right:112px; top:12px; bottom:auto; width:42px; height:42px; font-size:16px;">&#127183;</div>
+    <div id="btnEquip" class="tbtn" style="right:162px; top:12px; bottom:auto; width:42px; height:42px; font-size:16px;">&#127890;</div>
+    <div id="btnStats" class="tbtn" style="right:212px; top:12px; bottom:auto; width:42px; height:42px; font-size:16px;">&#128170;</div>
     <div id="btnPotR" class="tbtn" style="left:150px; bottom:44px; width:44px; height:44px; font-size:15px; background:rgba(180,60,60,.35);">&#129380;</div>
     <div id="btnPotW" class="tbtn" style="left:150px; bottom:100px; width:44px; height:44px; font-size:15px; background:rgba(220,220,220,.25);">&#129381;</div>
   </div>
@@ -155,6 +157,20 @@ let shopRects = [];               // clickable areas of the shop panel
 let shopNote = null;              // {msg, ok, until}
 let showCards = false;
 let cardRects = [];
+let showEquip = false, showStats = false;
+let equipRects = [], statRects = [];
+let invD = null;                  // {inv, eqp, st, sp} from server
+let pickCardFor = null;           // item id awaiting card selection
+const TIER_NAMES_C = {
+  w: ['-','Iron','Steel','Runic','Valkyrie','Celestial'],
+  a: ['-','Leather','Chain','Runic','Valkyrie','Celestial'],
+  s: ['-','Buckler','Kite','Tower','Valkyrie','Celestial'],
+  x: ['-','Ring','Amulet','Talisman','Relic','Celestial']
+};
+const KIND_NAMES_C = { w:'Weapon', a:'Armor', s:'Shield', x:'Accessory' };
+const KIND_STAT = { w:'+atk', a:'+HP', s:'+block', x:'+dmg%' };
+function itemLabel(it) { return TIER_NAMES_C[it.k][it.t] + ' ' + KIND_NAMES_C[it.k] + (it.p ? ' +' + it.p : ''); }
+function tierColor(t) { return t >= 5 ? '#ff9a3c' : t >= 4 ? '#c9a2ff' : '#e8e4f5'; }
 const CARD_INFO = {
   jelly:     ['Jelly Card',      'W: +4 atk',            'A: +40 HP'],
   bluejelly: ['Blue Jelly Card', 'W: +10% atk speed',    'A: +3 HP regen'],
@@ -245,6 +261,14 @@ function setupTouch() {
     e.preventDefault();
     if (me) showCards = !showCards;
   }, { passive: false });
+  document.getElementById('btnEquip').addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (me) { showEquip = !showEquip; showStats = false; pickCardFor = null; }
+  }, { passive: false });
+  document.getElementById('btnStats').addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (me) { showStats = !showStats; showEquip = false; }
+  }, { passive: false });
   bindBtn('btnPotR', () => ws.send(JSON.stringify({ t:'pot', kind:'red' })));
   bindBtn('btnPotW', () => ws.send(JSON.stringify({ t:'pot', kind:'white' })));
   document.getElementById('btnChat').addEventListener('touchstart', e => {
@@ -313,6 +337,7 @@ function onMsg(e) {
   }
   if (m.t === 'rank') { rankTop = m.top || []; return; }
   if (m.t === 'shopnote') { shopNote = { msg: m.msg, ok: m.ok, until: Date.now() + 3500 }; log(m.msg, m.ok ? 'lvl' : 'sys'); return; }
+  if (m.t === 'inv') { invD = { inv: m.inv, eqp: m.eqp, st: m.st, sp: m.sp }; return; }
   if (m.t === 's') {
     onlineCount = m.p.length;
     roster = m.p;
@@ -403,6 +428,11 @@ function handleEvent(m) {
       log(m.text, 'lvl');
       banner = { text: m.text, until: Date.now() + 5000 };
       break;
+    case 'lootdrop': {
+      fx.push({ ty:'cardpop', x: m.x, y: m.y, t: 0, boss: m.tier >= 4 });
+      if (m.id === myId) log('✨ Loot: ' + m.item + '! Press E to equip.', 'lvl');
+      break;
+    }
     case 'carddrop': {
       fx.push({ ty:'cardpop', x: m.x, y: m.y, t: 0, boss: m.boss });
       if (m.id === myId) log('🃏 Card drop: ' + m.card + '! Press C to view.', 'lvl');
@@ -524,10 +554,12 @@ window.addEventListener('keydown', e => {
   if (['1','2','3','4','5','6'].includes(e.key) && me && !me.dead) { ws.send(JSON.stringify({ t:'skill', n: +e.key })); return; }
   if (e.key === 'Tab') { e.preventDefault(); toggleRank(); return; }
   if ((e.key === 'b' || e.key === 'B') && me) { toggleShop(); return; }
-  if ((e.key === 'c' || e.key === 'C') && me) { showCards = !showCards; return; }
+  if ((e.key === 'c' || e.key === 'C') && me) { showCards = !showCards; showEquip = false; return; }
+  if ((e.key === 'e' || e.key === 'E') && me) { showEquip = !showEquip; showCards = false; showStats = false; pickCardFor = null; return; }
+  if ((e.key === 'v' || e.key === 'V') && me) { showStats = !showStats; showEquip = false; showCards = false; return; }
   if (e.key === '7' && me && !me.dead) { ws.send(JSON.stringify({ t:'pot', kind:'red' })); return; }
   if (e.key === '8' && me && !me.dead) { ws.send(JSON.stringify({ t:'pot', kind:'white' })); return; }
-  if (e.key === 'Escape' && (showShop || showCards)) { showShop = false; showCards = false; return; }
+  if (e.key === 'Escape' && (showShop || showCards || showEquip || showStats)) { showShop = false; showCards = false; showEquip = false; showStats = false; pickCardFor = null; return; }
   keys[e.key.toLowerCase()] = true;
   if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(e.key.toLowerCase())) e.preventDefault();
 });
@@ -987,6 +1019,8 @@ function drawHud() {
   drawRankPanel();
   drawShopPanel();
   drawCardBook();
+  drawEquipPanel();
+  drawStatsPanel();
 
   // potion counts (keys 4/5)
   if (me.po) {
@@ -1003,11 +1037,10 @@ function drawHud() {
   }
   // gear display
   if (me.eq) {
-    const wNames = ['-', 'Iron', 'Steel', 'Runic'], aNames = ['-', 'Leather', 'Chain', 'Runic'];
     cx.fillStyle = '#a89bc9'; cx.font = '10px Courier New'; cx.textAlign = 'left';
-    const wTxt = me.eq[0] ? wNames[me.eq[0]] + '+' + me.eq[1] : 'no weapon';
-    const aTxt = me.eq[2] ? aNames[me.eq[2]] + '+' + me.eq[3] : 'no armor';
-    cx.fillText('W: ' + wTxt + '  A: ' + aTxt, 12, cv.height - 2);
+    const wTxt = me.eq[0] ? TIER_NAMES_C.w[me.eq[0]] + '+' + me.eq[1] : 'no weapon';
+    const aTxt = me.eq[2] ? TIER_NAMES_C.a[me.eq[2]] + '+' + me.eq[3] : 'no armor';
+    cx.fillText('W: ' + wTxt + '  A: ' + aTxt + '  [E]quip [V]stats', 12, cv.height - 2);
   }
 
   // boss announcement banner
@@ -1078,6 +1111,8 @@ const SHOP_LIST = [
   { item:'a1', label:'Leather Armor   +40 HP', price:200 },
   { item:'a2', label:'Chain Mail     +100 HP', price:800 },
   { item:'a3', label:'Runic Plate    +220 HP', price:2500 },
+  { item:'s1', label:'Buckler Shield  4% block', price:200 },
+  { item:'s2', label:'Kite Shield     8% block', price:800 },
   { item:'red', label:'Red Potion    heal 80', price:15 },
   { item:'white', label:'White Potion heal 300', price:60 }
 ];
@@ -1112,33 +1147,11 @@ function drawShopPanel() {
     y += 28;
   }
 
-  // upgrade section
-  y += 8;
+  // upgrades moved to the Equipment window
+  y += 12;
   cx.textAlign = 'left'; cx.font = 'bold 11px Courier New'; cx.fillStyle = '#ff9a3c';
-  cx.fillText('UPGRADE (max +10, chance drops each level)', x0 + 20, y + 10);
+  cx.fillText('UPGRADES & CARDS: open the Equipment window [E]', x0 + 20, y + 10);
   y += 24;
-  const slots = [
-    { s: 'w', label: 'Weapon', tier: me.eq ? me.eq[0] : 0, plus: me.eq ? me.eq[1] : 0 },
-    { s: 'a', label: 'Armor',  tier: me.eq ? me.eq[2] : 0, plus: me.eq ? me.eq[3] : 0 }
-  ];
-  for (const sl of slots) {
-    const cost = Math.round(100 * Math.pow(1.6, sl.plus));
-    const chance = Math.round(Math.pow(0.8, sl.plus) * 100);
-    cx.textAlign = 'left'; cx.font = '11px Courier New'; cx.fillStyle = '#e8e4f5';
-    if (!sl.tier) cx.fillText(sl.label + ': none owned', x0 + 20, y + 13);
-    else if (sl.plus >= 10) cx.fillText(sl.label + ' +10 (MAX!)', x0 + 20, y + 13);
-    else cx.fillText(sl.label + ' +' + sl.plus + ' > +' + (sl.plus + 1) + '   ' + cost + 'z   ' + chance + '% chance', x0 + 20, y + 13);
-    if (sl.tier && sl.plus < 10) {
-      const bx = x0 + w - 96, bw = 76, bh = 20;
-      cx.fillStyle = me.z >= cost ? '#5c3a7a' : '#3a3348';
-      cx.fillRect(bx, y, bw, bh);
-      cx.strokeStyle = '#8a6ab0'; cx.strokeRect(bx + .5, y + .5, bw - 1, bh - 1);
-      cx.textAlign = 'center'; cx.fillStyle = '#e0d0f5';
-      cx.fillText('UPGRADE', bx + bw / 2, y + 14);
-      shopRects.push({ x: bx, y, w: bw, h: bh, act: 'upgrade', slot: sl.s });
-    }
-    y += 30;
-  }
 
   // shop note + close
   if (shopNote && Date.now() < shopNote.until) {
@@ -1180,21 +1193,10 @@ function drawCardBook() {
     cx.fillText(info[0] + '  x' + owned, x0 + 16, y + 12);
     cx.font = '10px Courier New'; cx.fillStyle = owned > 0 ? '#a89bc9' : '#4a4560';
     cx.fillText(info[1] + '   ' + info[2], x0 + 16, y + 26);
-    if (owned > 0) {
-      const b1 = { x: x0 + w - 150, y: y + 2, w: 62, h: 24, act: 'equip', card: key, slot: 'w' };
-      const b2 = { x: x0 + w - 80,  y: y + 2, w: 62, h: 24, act: 'equip', card: key, slot: 'a' };
-      for (const [b, lbl] of [[b1, '> WPN'], [b2, '> ARM']]) {
-        cx.fillStyle = '#3a2c56'; cx.fillRect(b.x, b.y, b.w, b.h);
-        cx.strokeStyle = '#8a6ab0'; cx.strokeRect(b.x + .5, b.y + .5, b.w - 1, b.h - 1);
-        cx.textAlign = 'center'; cx.fillStyle = '#e0d0f5'; cx.font = 'bold 10px Courier New';
-        cx.fillText(lbl, b.x + b.w / 2, b.y + 16);
-        cardRects.push(b);
-      }
-    }
     y += 46;
   }
   cx.textAlign = 'center'; cx.font = '10px Courier New'; cx.fillStyle = '#6a6080';
-  cx.fillText('slotting a card replaces (destroys) the old one · press C or ESC to close', cv.width / 2, y0 + h - 10);
+  cx.fillText('socket cards into items via the Equipment window [E] · C or ESC to close', cv.width / 2, y0 + h - 10);
   const cxr = { x: x0 + w - 26, y: y0 + 6, w: 20, h: 20, act: 'close' };
   cx.fillStyle = '#5c3a3a'; cx.fillRect(cxr.x, cxr.y, cxr.w, cxr.h);
   cx.fillStyle = '#ffb0b0'; cx.font = 'bold 12px Courier New'; cx.fillText('X', cxr.x + 10, cxr.y + 14);
@@ -1202,10 +1204,37 @@ function drawCardBook() {
 }
 
 cv.addEventListener('pointerdown', e => {
-  if (!me || (!showShop && !showCards)) return;
+  if (!me || (!showShop && !showCards && !showEquip && !showStats)) return;
   const r = cv.getBoundingClientRect();
   const px = (e.clientX - r.left) * (cv.width / r.width);
   const py = (e.clientY - r.top) * (cv.height / r.height);
+  if (showEquip) {
+    for (const rc of equipRects) {
+      if (px >= rc.x && px <= rc.x + rc.w && py >= rc.y && py <= rc.y + rc.h) {
+        if (rc.act === 'close') { showEquip = false; pickCardFor = null; }
+        else if (rc.act === 'cancelpick') pickCardFor = null;
+        else if (rc.act === 'equip') ws.send(JSON.stringify({ t:'item', action:'equip', item: rc.item }));
+        else if (rc.act === 'unequip') ws.send(JSON.stringify({ t:'item', action:'unequip', slot: rc.slot }));
+        else if (rc.act === 'dropitem') ws.send(JSON.stringify({ t:'item', action:'drop', item: rc.item }));
+        else if (rc.act === 'upgitem') ws.send(JSON.stringify({ t:'item', action:'upgrade', item: rc.item }));
+        else if (rc.act === 'delcard') ws.send(JSON.stringify({ t:'item', action:'delcard', item: rc.item }));
+        else if (rc.act === 'addcard') pickCardFor = rc.item;
+        else if (rc.act === 'pickcard') { ws.send(JSON.stringify({ t:'item', action:'setcard', item: pickCardFor, card: rc.card })); pickCardFor = null; }
+        return;
+      }
+    }
+    return;
+  }
+  if (showStats) {
+    for (const rc of statRects) {
+      if (px >= rc.x && px <= rc.x + rc.w && py >= rc.y && py <= rc.y + rc.h) {
+        if (rc.act === 'close') showStats = false;
+        else if (rc.act === 'statup') ws.send(JSON.stringify({ t:'item', action:'statup', stat: rc.stat }));
+        return;
+      }
+    }
+    return;
+  }
   if (showShop) {
     for (const rc of shopRects) {
       if (px >= rc.x && px <= rc.x + rc.w && py >= rc.y && py <= rc.y + rc.h) {
@@ -1226,6 +1255,121 @@ cv.addEventListener('pointerdown', e => {
     }
   }
 });
+
+function btn(rects, x, y, w, h, label, bg, fg, data) {
+  cx.fillStyle = bg; cx.fillRect(x, y, w, h);
+  cx.strokeStyle = '#6a5a90'; cx.strokeRect(x + .5, y + .5, w - 1, h - 1);
+  cx.textAlign = 'center'; cx.font = 'bold 9px Courier New'; cx.fillStyle = fg;
+  cx.fillText(label, x + w / 2, y + h / 2 + 3);
+  rects.push({ x, y, w, h, ...data });
+}
+
+function drawEquipPanel() {
+  equipRects = [];
+  if (!showEquip || !me || !invD) return;
+  const w = Math.min(520, cv.width - 12), x0 = (cv.width - w) / 2, y0 = 30, h = Math.min(520, cv.height - 50);
+  cx.fillStyle = 'rgba(12,8,22,.96)'; cx.fillRect(x0, y0, w, h);
+  cx.strokeStyle = '#5c8a6a'; cx.lineWidth = 2; cx.strokeRect(x0, y0, w, h);
+  cx.textAlign = 'center'; cx.font = 'bold 14px Courier New'; cx.fillStyle = '#8fe8a0';
+  cx.fillText(pickCardFor ? '~ PICK A CARD TO SOCKET ~' : '~ EQUIPMENT ~', cv.width / 2, y0 + 20);
+
+  // card-picking mode: list owned cards
+  if (pickCardFor) {
+    let y = y0 + 44;
+    const cards = invD ? (me.cards || {}) : {};
+    let any = false;
+    for (const key of Object.keys(CARD_INFO)) {
+      if (!(cards[key] > 0)) continue;
+      any = true;
+      cx.textAlign = 'left'; cx.font = '11px Courier New'; cx.fillStyle = key === 'direking' || key === 'solaris' ? '#ffd76a' : '#e8e4f5';
+      cx.fillText(CARD_INFO[key][0] + ' x' + cards[key], x0 + 16, y + 14);
+      cx.font = '9px Courier New'; cx.fillStyle = '#a89bc9';
+      cx.fillText(CARD_INFO[key][1] + ' / ' + CARD_INFO[key][2], x0 + 16, y + 27);
+      btn(equipRects, x0 + w - 90, y + 4, 74, 24, 'SOCKET', '#2d5c3a', '#cfe8d5', { act: 'pickcard', card: key });
+      y += 40;
+    }
+    if (!any) { cx.textAlign = 'center'; cx.fillStyle = '#8a7db0'; cx.font = '11px Courier New'; cx.fillText('No cards in your bag - hunt monsters!', cv.width / 2, y0 + 80); }
+    btn(equipRects, x0 + w / 2 - 40, y0 + h - 34, 80, 24, 'CANCEL', '#5c3a3a', '#ffb0b0', { act: 'cancelpick' });
+    return;
+  }
+
+  // equipped slots
+  let y = y0 + 36;
+  for (const sl of ['w', 'a', 's', 'x']) {
+    const id = invD.eqp[sl];
+    const it = id ? invD.inv.find(i => i.id === id) : null;
+    cx.textAlign = 'left'; cx.font = 'bold 10px Courier New'; cx.fillStyle = '#8fd8ff';
+    cx.fillText(KIND_NAMES_C[sl].toUpperCase() + ':', x0 + 12, y + 14);
+    if (it) {
+      cx.font = '11px Courier New'; cx.fillStyle = tierColor(it.t);
+      cx.fillText(itemLabel(it), x0 + 96, y + 14);
+      cx.font = '9px Courier New'; cx.fillStyle = it.c ? '#c9a2ff' : '#5a5470';
+      cx.fillText('[' + (it.c ? CARD_INFO[it.c][0] : 'empty socket') + ']', x0 + 96, y + 27);
+      const cost = Math.round(100 * Math.pow(1.6, it.p)), ch = Math.round(Math.pow(0.8, it.p) * 100);
+      btn(equipRects, x0 + w - 220, y + 2, 52, 26, it.p >= 10 ? 'MAX' : '+' + (it.p + 1) + ' ' + ch + '%', '#5c3a7a', '#e0d0f5', { act: 'upgitem', item: it.id });
+      btn(equipRects, x0 + w - 162, y + 2, 46, 26, it.c ? 'CARD-' : 'CARD+', it.c ? '#5c3a3a' : '#2d5c3a', '#fff', { act: it.c ? 'delcard' : 'addcard', item: it.id });
+      btn(equipRects, x0 + w - 110, y + 2, 44, 26, 'UNEQ', '#3a3348', '#cfc4e8', { act: 'unequip', slot: sl });
+    } else {
+      cx.font = '11px Courier New'; cx.fillStyle = '#5a5470';
+      cx.fillText('(nothing equipped)', x0 + 96, y + 14);
+    }
+    y += 36;
+  }
+  // inventory
+  y += 6;
+  cx.textAlign = 'left'; cx.font = 'bold 11px Courier New'; cx.fillStyle = '#ff9a3c';
+  const bagItems = invD.inv.filter(i => !Object.values(invD.eqp).includes(i.id));
+  cx.fillText('BAG (' + bagItems.length + ')', x0 + 12, y + 10);
+  y += 20;
+  cx.font = '10px Courier New';
+  for (const it of bagItems) {
+    if (y > y0 + h - 30) break;
+    cx.textAlign = 'left'; cx.fillStyle = tierColor(it.t);
+    cx.fillText(itemLabel(it) + ' ' + KIND_STAT[it.k] + (it.c ? ' [' + CARD_INFO[it.c][0] + ']' : ''), x0 + 12, y + 13);
+    btn(equipRects, x0 + w - 154, y, 52, 22, 'EQUIP', '#2d5c3a', '#cfe8d5', { act: 'equip', item: it.id });
+    btn(equipRects, x0 + w - 96, y, 44, 22, 'DROP', '#5c3a3a', '#ffb0b0', { act: 'dropitem', item: it.id });
+    y += 27;
+  }
+  if (shopNote && Date.now() < shopNote.until) {
+    cx.textAlign = 'center'; cx.font = 'bold 10px Courier New';
+    cx.fillStyle = shopNote.ok ? '#7ee06a' : '#ff8080';
+    cx.fillText(shopNote.msg.slice(0, 64), cv.width / 2, y0 + h - 24);
+  }
+  cx.textAlign = 'center'; cx.font = '9px Courier New'; cx.fillStyle = '#6a6080';
+  cx.fillText('drops from monsters can reach Valkyrie/Celestial tier · E or ESC to close', cv.width / 2, y0 + h - 8);
+  btn(equipRects, x0 + w - 26, y0 + 6, 20, 20, 'X', '#5c3a3a', '#ffb0b0', { act: 'close' });
+}
+
+function drawStatsPanel() {
+  statRects = [];
+  if (!showStats || !me || !invD) return;
+  const w = Math.min(400, cv.width - 12), x0 = (cv.width - w) / 2, y0 = 70, h = 300;
+  cx.fillStyle = 'rgba(12,8,22,.96)'; cx.fillRect(x0, y0, w, h);
+  cx.strokeStyle = '#c9a227'; cx.lineWidth = 2; cx.strokeRect(x0, y0, w, h);
+  cx.textAlign = 'center'; cx.font = 'bold 14px Courier New'; cx.fillStyle = '#ffd76a';
+  cx.fillText('~ STATUS ~', cv.width / 2, y0 + 22);
+  cx.font = '11px Courier New'; cx.fillStyle = '#8fd8ff';
+  cx.fillText('Points available: ' + invD.sp, cv.width / 2, y0 + 42);
+  const info = {
+    str: 'STR  +1 atk',
+    vit: 'VIT  +8 HP, +regen',
+    agi: 'AGI  +atk speed, +dodge',
+    dex: 'DEX  +critical chance',
+    int: 'INT  +all damage %'
+  };
+  let y = y0 + 62;
+  for (const k of ['str', 'vit', 'agi', 'dex', 'int']) {
+    cx.textAlign = 'left'; cx.font = 'bold 12px Courier New'; cx.fillStyle = '#e8e4f5';
+    cx.fillText(k.toUpperCase() + '  ' + (invD.st[k] || 0), x0 + 20, y + 15);
+    cx.font = '9px Courier New'; cx.fillStyle = '#a89bc9';
+    cx.fillText(info[k], x0 + 110, y + 15);
+    if (invD.sp > 0) btn(statRects, x0 + w - 56, y, 36, 24, '+1', '#2d5c3a', '#cfe8d5', { act: 'statup', stat: k });
+    y += 36;
+  }
+  cx.textAlign = 'center'; cx.font = '9px Courier New'; cx.fillStyle = '#6a6080';
+  cx.fillText('3 points per level · V or ESC to close', cv.width / 2, y0 + h - 10);
+  btn(statRects, x0 + w - 26, y0 + 6, 20, 20, 'X', '#5c3a3a', '#ffb0b0', { act: 'close' });
+}
 
 function drawSkillBar() {
   if (!mySkills.length || !me) return;
