@@ -229,7 +229,20 @@ const MONSTER_TYPES = {
   direking:  { name: 'Gorehorn the Dire King', hp: 9000, atk: 100, xp: 4500, zeny: 4000, speed: 1.9, aggro: 320, lvl: 40, boss: true },
   crab:      { name: 'Tide Crab',   hp: 1200, atk: 60,  xp: 800,   zeny: 450,  speed: 1.0, aggro: 240, lvl: 26 },
   siren:     { name: 'Siren',       hp: 1800, atk: 80,  xp: 1300,  zeny: 700,  speed: 1.3, aggro: 260, lvl: 32 },
-  solaris:   { name: 'SOLARIS the Sun Tyrant', hp: 20000, atk: 130, xp: 12000, zeny: 10000, speed: 2.0, aggro: 340, lvl: 60, boss: true, mvp: true }
+  solaris:   { name: 'SOLARIS the Sun Tyrant', hp: 40000, atk: 160, xp: 15000, zeny: 14000, speed: 2.0, aggro: 340, lvl: 60, boss: true, mvp: true, armor: 0.3 }
+};
+// monster skills: fired while chasing a target, on a cooldown ("fx" reuses client skill visuals)
+const MOB_SKILLS = {
+  jelly:     { cd: 7000,  fx: 'quicken' },    // gel mend: heals itself
+  bluejelly: { cd: 6000,  fx: 'jupitel' },    // water bolt: ranged zap
+  mushy:     { cd: 8000,  fx: 'venom' },      // spore cloud: AoE poison burst
+  wolf:      { cd: 9000,  fx: 'shadow' },     // pounce: leaps onto its prey
+  skeleton:  { cd: 7000,  fx: 'focus' },      // bone throw: long-range hit
+  ghoul:     { cd: 8000,  fx: 'crossimpact' },// life drain: damage + self heal
+  crab:      { cd: 10000, fx: 'quicken' },    // bubble shell: 50% damage shield 4s
+  siren:     { cd: 8000,  fx: 'frostnova' },  // siren song: AoE scream
+  direking:  { cd: 12000, fx: 'bbash' }       // dire roar: heavy AoE
+  // solaris has its own rotation below
 };
 const SPAWN_ZONES = [
   ['jelly',     8, 20, 2,  48, 10],
@@ -449,6 +462,9 @@ function lifesteal(p, dmg) {
 }
 
 function hitMonster(p, m, dmg) {
+  const t = MONSTER_TYPES[m.type];
+  if (t.armor) dmg = Math.max(1, Math.floor(dmg * (1 - t.armor)));            // MVP natural armor
+  if (Date.now() < (m.shieldUntil || 0)) dmg = Math.max(1, Math.floor(dmg * 0.5)); // crab bubble shell
   m.hp -= dmg;
   m.target = p.id;
   lifesteal(p, dmg);
@@ -914,7 +930,7 @@ function handleChat(p, msg) {
 function killMonster(m, killer) {
   const t = MONSTER_TYPES[m.type];
   m.dead = true;
-  m.respawnAt = Date.now() + (t.boss ? 600000 : 8000 + Math.random() * 7000);
+  m.respawnAt = Date.now() + (t.mvp ? 1200000 : t.boss ? 600000 : 8000 + Math.random() * 7000);
   let zmult = 1;
   if (killer.cls === 'merchant') zmult *= 1.3;
   if (Date.now() < killer.zenyBuffUntil) zmult *= 2;
@@ -965,7 +981,7 @@ setInterval(() => {
       if (now >= m.respawnAt) {
         const p = randPointInZone(m.zone);
         m.x = p.x; m.y = p.y; m.homeX = p.x; m.homeY = p.y;
-        m.hp = t.hp; m.dead = false; m.target = null; m.slowUntil = 0;
+        m.hp = t.hp; m.dead = false; m.target = null; m.slowUntil = 0; m.enraged = false; m.shieldUntil = 0;
         if (t.boss) broadcast({ t: 'event', kind: 'boss', text: t.name + ' has awakened in the dungeon!' });
       }
       continue;
@@ -989,8 +1005,69 @@ setInterval(() => {
         if (!isBlocked(nx, ny)) { m.x = nx; m.y = ny; }
       } else if (now - m.lastAtk > (t.boss ? 1500 : 1200)) {
         m.lastAtk = now;
-        const raw = Math.max(1, t.atk + Math.floor(Math.random() * 6) - 2);
+        const raw = Math.max(1, Math.floor((t.atk + Math.floor(Math.random() * 6) - 2) * (m.enraged ? 1.5 : 1)));
         if (monsterHitsPlayer(m, tgt, raw)) killPlayer(tgt, m);
+      }
+      // ---- monster skills (while chasing) ----
+      const ms = MOB_SKILLS[m.type];
+      if (ms && now > (m.skillAt || 0)) {
+        m.skillAt = now + ms.cd;
+        const fxMsg = { t: 'event', kind: 'skillfx', id: m.id, skill: ms.fx, x: Math.round(m.x), y: Math.round(m.y) };
+        if (m.type === 'jelly') {
+          m.hp = Math.min(t.hp, m.hp + 15); broadcast(fxMsg);
+        } else if (m.type === 'bluejelly' && d < 140) {
+          fxMsg.x = Math.round(tgt.x); fxMsg.y = Math.round(tgt.y); broadcast(fxMsg);
+          if (monsterHitsPlayer(m, tgt, Math.floor(t.atk * 1.2))) killPlayer(tgt, m);
+        } else if (m.type === 'mushy') {
+          broadcast(fxMsg);
+          for (const pid in players) { const pl = players[pid]; if (!pl.dead && Math.hypot(pl.x - m.x, pl.y - m.y) < 85) { if (monsterHitsPlayer(m, pl, Math.floor(t.atk * 0.7))) killPlayer(pl, m); } }
+        } else if (m.type === 'wolf' && d > 60 && d < 220) {
+          if (!isBlocked(tgt.x + 26, tgt.y)) { m.x = tgt.x + 26; m.y = tgt.y; }
+          fxMsg.x = Math.round(m.x); fxMsg.y = Math.round(m.y); broadcast(fxMsg);
+          if (monsterHitsPlayer(m, tgt, Math.floor(t.atk * 1.1))) killPlayer(tgt, m);
+        } else if (m.type === 'skeleton' && d < 170) {
+          fxMsg.x = Math.round(tgt.x); fxMsg.y = Math.round(tgt.y); broadcast(fxMsg);
+          if (monsterHitsPlayer(m, tgt, Math.floor(t.atk * 1.3))) killPlayer(tgt, m);
+        } else if (m.type === 'ghoul' && d < 90) {
+          fxMsg.x = Math.round(tgt.x); fxMsg.y = Math.round(tgt.y); broadcast(fxMsg);
+          const dd = Math.floor(t.atk * 1.0);
+          m.hp = Math.min(t.hp, m.hp + dd);
+          if (monsterHitsPlayer(m, tgt, dd)) killPlayer(tgt, m);
+        } else if (m.type === 'crab') {
+          m.shieldUntil = now + 4000; broadcast(fxMsg);
+        } else if (m.type === 'siren') {
+          broadcast(fxMsg);
+          for (const pid in players) { const pl = players[pid]; if (!pl.dead && Math.hypot(pl.x - m.x, pl.y - m.y) < 105) { if (monsterHitsPlayer(m, pl, Math.floor(t.atk * 0.8))) killPlayer(pl, m); } }
+        } else if (m.type === 'direking') {
+          broadcast(fxMsg);
+          for (const pid in players) { const pl = players[pid]; if (!pl.dead && Math.hypot(pl.x - m.x, pl.y - m.y) < 120) { if (monsterHitsPlayer(m, pl, Math.floor(t.atk * 1.0))) killPlayer(pl, m); } }
+        }
+      }
+      // ---- SOLARIS MVP rotation: flare + beam + enrage + regeneration ----
+      if (t.mvp) {
+        if (!m.enraged && m.hp < t.hp * 0.5) {
+          m.enraged = true;
+          broadcast({ t: 'event', kind: 'boss', text: '🔥 SOLARIS ENRAGES! The sun burns hotter!!' });
+          broadcast({ t: 'event', kind: 'skillfx', id: m.id, skill: 'warcry', x: Math.round(m.x), y: Math.round(m.y) });
+        }
+        const rage = m.enraged ? 1.5 : 1;
+        if (now > (m.flareAt || 0)) {
+          m.flareAt = now + (m.enraged ? 6000 : 8000);
+          broadcast({ t: 'event', kind: 'skillfx', id: m.id, skill: 'inferno', x: Math.round(m.x), y: Math.round(m.y) });
+          for (const pid in players) { const pl = players[pid]; if (!pl.dead && Math.hypot(pl.x - m.x, pl.y - m.y) < 130) { if (monsterHitsPlayer(m, pl, Math.floor(t.atk * 2 * rage))) killPlayer(pl, m); } }
+        }
+        if (now > (m.beamAt || 0) && d < 260) {
+          m.beamAt = now + (m.enraged ? 4000 : 5000);
+          broadcast({ t: 'event', kind: 'skillfx', id: m.id, skill: 'jupitel', x: Math.round(tgt.x), y: Math.round(tgt.y) });
+          if (monsterHitsPlayer(m, tgt, Math.floor(t.atk * 2.5 * rage))) killPlayer(tgt, m);
+        }
+        if (!m.enraged && now > (m.healAt || 0)) {
+          m.healAt = now + 10000;
+          if (m.hp < t.hp) {
+            m.hp = Math.min(t.hp, m.hp + 400);
+            broadcast({ t: 'event', kind: 'skillfx', id: m.id, skill: 'goldrush', x: Math.round(m.x), y: Math.round(m.y) });
+          }
+        }
       }
       // boss stomp: AoE every 6s
       if (t.boss && now - m.lastStomp > 6000) {
