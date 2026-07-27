@@ -65,6 +65,13 @@ for (let i = 0; i < 10; i++) MAP.push(('s' + 'c'.repeat(50) + 's').split(''));
 MAP.push('s'.repeat(52).split(''));                               // dungeon bottom wall
 // pillars inside the cavern
 [[10,36],[10,40],[20,38],[30,36],[30,41],[24,35]].forEach(([x,y]) => { MAP[y][x] = 's'; });
+// ---- SEA SAND SUN beach (below the dungeon, entrance bottom-left of cavern) ----
+MAP[MAP.length - 1][10] = 'c'; MAP[MAP.length - 1][11] = 'c';   // entrance in dungeon bottom wall
+MAP.push(('s'.repeat(10) + 'cc' + 's'.repeat(40)).split(''));    // corridor row
+for (let i = 0; i < 10; i++) MAP.push(('s' + 'd'.repeat(38) + 'w'.repeat(13)).split(''));
+MAP.push('w'.repeat(52).split(''));                              // open sea
+// palm trees on the sand
+[[6,47],[14,49],[22,46],[30,50],[34,47],[9,52],[26,52],[18,53]].forEach(([x,y]) => { if (MAP[y] && MAP[y][x] === 'd') MAP[y][x] = 't'; });
 const MAP_H = MAP.length;
 const BLOCKED = new Set(['t','w','s']);
 
@@ -106,7 +113,10 @@ const CARDS = {
   wolf:      { name: 'Dire Wolf Card',  w: { crit: 0.08 },   a: { spd: 0.10 },           drop: 0.035 },
   skeleton:  { name: 'Skeleton Card',   w: { ls: 0.08 },     a: { dodge: 0.10 },         drop: 0.03  },
   ghoul:     { name: 'Ghoul Card',      w: { pvp: 0.15 },    a: { hp: 100, dr: 0.05 },   drop: 0.03  },
-  direking:  { name: 'GOREHORN CARD',   w: { meteor: 0.10 }, a: { aura: 15 },            drop: 0.25  }
+  direking:  { name: 'GOREHORN CARD',   w: { meteor: 0.10 }, a: { aura: 15 },            drop: 0.25  },
+  crab:      { name: 'Tide Crab Card',  w: { atk: 8 },       a: { hp: 60, dr: 0.05 },    drop: 0.04  },
+  siren:     { name: 'Siren Card',      w: { aspd: 0.12 },   a: { regen: 5 },            drop: 0.035 },
+  solaris:   { name: 'SOLARIS CARD',    w: { solar: 0.15 },  a: { hp: 200, regen: 5, spd: 0.05 }, drop: 0.30 }
 };
 function cardEff(p, slot, key) {
   const ck = slot === 'w' ? p.eq.wc : p.eq.ac;
@@ -121,36 +131,52 @@ function defaultEq() { return { wt: 0, wp: 0, at: 0, ap: 0, red: 0, white: 0, ca
 function recalcStats(p) {
   const st = statsForLevel(p.cls, p.level);
   const ratio = p.maxHp ? Math.min(1, p.hp / p.maxHp) : 1;
-  p.atk = st.atk + WEAPON_TIERS[p.eq.wt] + p.eq.wp * 3 + cardEff(p, 'w', 'atk');
-  p.maxHp = st.maxHp + ARMOR_TIERS[p.eq.at] + p.eq.ap * 25 + cardEff(p, 'a', 'hp');
+  p.atk = st.atk + WEAPON_TIERS[p.eq.wt] + p.eq.wp * 3 + cardEff(p, 'w', 'atk') + (p.adv ? 5 : 0);
+  p.maxHp = st.maxHp + ARMOR_TIERS[p.eq.at] + p.eq.ap * 25 + cardEff(p, 'a', 'hp') + (p.adv ? 60 : 0);
   p.hp = Math.max(1, Math.round(p.maxHp * ratio));
 }
 // skill defs: unlock level, cooldown ms, behavior handled in useSkill()
+const ADV_NAMES = { swordsman: 'Knight', archer: 'Sniper', mage: 'Wizard', thief: 'Assassin', merchant: 'Tycoon' };
 const SKILLS = {
   swordsman: [
     { key: 'bash',      name: 'Bash',         lvl: 3,  cd: 4000 },
     { key: 'whirl',     name: 'Whirlwind',    lvl: 6,  cd: 8000 },
-    { key: 'warcry',    name: 'War Cry',      lvl: 10, cd: 20000 }
+    { key: 'warcry',    name: 'War Cry',      lvl: 10, cd: 20000 },
+    { key: 'bbash',     name: 'Bowling Bash', lvl: 30, cd: 8000 },
+    { key: 'quicken',   name: 'Quicken',      lvl: 35, cd: 20000 },
+    { key: 'lordaura',  name: 'Lord Strike',  lvl: 40, cd: 15000 }
   ],
   archer: [
     { key: 'dstrafe',   name: 'Double Strafe', lvl: 3,  cd: 4000 },
     { key: 'arrowrain', name: 'Arrow Rain',    lvl: 6,  cd: 9000 },
-    { key: 'snipe',     name: 'Snipe',         lvl: 10, cd: 15000 }
+    { key: 'snipe',     name: 'Snipe',         lvl: 10, cd: 15000 },
+    { key: 'focus',     name: 'Focused Arrow', lvl: 30, cd: 10000 },
+    { key: 'astorm',    name: 'Arrow Storm',   lvl: 35, cd: 12000 },
+    { key: 'truesight', name: 'True Sight',    lvl: 40, cd: 25000 }
   ],
   mage: [
     { key: 'firebolt',  name: 'Firebolt',     lvl: 3,  cd: 4000 },
     { key: 'frostnova', name: 'Frost Nova',   lvl: 6,  cd: 10000 },
-    { key: 'meteor',    name: 'Meteor',       lvl: 10, cd: 18000 }
+    { key: 'meteor',    name: 'Meteor',       lvl: 10, cd: 18000 },
+    { key: 'jupitel',   name: 'Jupitel',      lvl: 30, cd: 8000 },
+    { key: 'stormgust', name: 'Storm Gust',   lvl: 35, cd: 14000 },
+    { key: 'inferno',   name: 'Hell Inferno', lvl: 40, cd: 16000 }
   ],
   thief: [
     { key: 'dbl',       name: 'Double Attack', lvl: 3,  cd: 4000 },
     { key: 'backstab',  name: 'Backstab',      lvl: 6,  cd: 8000 },
-    { key: 'shadow',    name: 'Shadow Dash',   lvl: 10, cd: 12000 }
+    { key: 'shadow',    name: 'Shadow Dash',   lvl: 10, cd: 12000 },
+    { key: 'sonic',     name: 'Sonic Blow',    lvl: 30, cd: 10000 },
+    { key: 'venom',     name: 'Venom Edge',    lvl: 35, cd: 12000 },
+    { key: 'crossimpact', name: 'Cross Impact', lvl: 40, cd: 15000 }
   ],
   merchant: [
     { key: 'mammonite', name: 'Mammonite',    lvl: 3,  cd: 5000 },
     { key: 'cointoss',  name: 'Coin Toss',    lvl: 6,  cd: 8000 },
-    { key: 'greed',     name: 'Greed Aura',   lvl: 10, cd: 20000 }
+    { key: 'greed',     name: 'Greed Aura',   lvl: 10, cd: 20000 },
+    { key: 'cartterm',  name: 'Cart Cannon',  lvl: 30, cd: 10000 },
+    { key: 'goldrush',  name: 'Gold Rush',    lvl: 35, cd: 25000 },
+    { key: 'meltdown',  name: 'Meltdown',     lvl: 40, cd: 14000 }
   ]
 };
 
@@ -162,7 +188,10 @@ const MONSTER_TYPES = {
   wolf:      { name: 'Dire Wolf',   hp: 680,  atk: 45, xp: 220,  zeny: 135,  speed: 1.9, aggro: 220, lvl: 15 },
   skeleton:  { name: 'Skeleton',    hp: 950,  atk: 55, xp: 380,  zeny: 210,  speed: 1.5, aggro: 240, lvl: 20 },
   ghoul:     { name: 'Ghoul',       hp: 1400, atk: 70, xp: 600,  zeny: 330,  speed: 1.2, aggro: 260, lvl: 25 },
-  direking:  { name: 'Gorehorn the Dire King', hp: 9000, atk: 100, xp: 4500, zeny: 4000, speed: 1.9, aggro: 320, lvl: 40, boss: true }
+  direking:  { name: 'Gorehorn the Dire King', hp: 9000, atk: 100, xp: 4500, zeny: 4000, speed: 1.9, aggro: 320, lvl: 40, boss: true },
+  crab:      { name: 'Tide Crab',   hp: 1200, atk: 60,  xp: 800,   zeny: 450,  speed: 1.0, aggro: 240, lvl: 26 },
+  siren:     { name: 'Siren',       hp: 1800, atk: 80,  xp: 1300,  zeny: 700,  speed: 1.3, aggro: 260, lvl: 32 },
+  solaris:   { name: 'SOLARIS the Sun Tyrant', hp: 20000, atk: 130, xp: 12000, zeny: 10000, speed: 2.0, aggro: 340, lvl: 60, boss: true, mvp: true }
 };
 const SPAWN_ZONES = [
   ['jelly',     8, 20, 2,  48, 10],
@@ -172,7 +201,10 @@ const SPAWN_ZONES = [
   ['wolf',      3, 30, 24, 49, 30],
   ['skeleton',  5, 3,  33, 25, 42],
   ['ghoul',     4, 26, 33, 48, 42],
-  ['direking',  1, 34, 36, 46, 41]
+  ['direking',  1, 34, 36, 46, 41],
+  ['crab',      5, 2,  46, 30, 54],
+  ['siren',     4, 15, 46, 37, 54],
+  ['solaris',   1, 28, 48, 37, 54]
 ];
 
 let nextMonsterId = 1;
@@ -265,7 +297,7 @@ function verifyToken(token) {
   try { return JSON.parse(Buffer.from(data, 'base64url').toString('utf8')); } catch { return null; }
 }
 function recordOf(p) {
-  return { name: p.name, cls: p.cls, level: p.level, xp: p.xp, zeny: p.zeny, eq: p.eq, pinHash: p.pinHash, seen: Date.now() };
+  return { name: p.name, cls: p.cls, level: p.level, xp: p.xp, zeny: p.zeny, eq: p.eq, adv: p.adv || 0, pinHash: p.pinHash, seen: Date.now() };
 }
 function persist(p) {
   const lower = p.name.toLowerCase();
@@ -298,7 +330,9 @@ function makePlayer(ws, name, cls, pinHash, restore) {
     hp: st.maxHp, maxHp: st.maxHp, atk: st.atk,
     level, xp: restore ? restore.xp : 0, zeny: restore ? restore.zeny : 0,
     eq: (restore && restore.eq) ? { ...defaultEq(), ...restore.eq } : defaultEq(),
-    lastAtk: 0, lastPot: 0, skillCd: [0, 0, 0], buffUntil: 0, zenyBuffUntil: 0,
+    adv: restore ? (restore.adv || 0) : 0,
+    lastAtk: 0, lastPot: 0, skillCd: [0, 0, 0, 0, 0, 0], buffUntil: 0, zenyBuffUntil: 0,
+    quickenUntil: 0, tsUntil: 0,
     dead: false, respawnAt: 0, lastMoveMsg: Date.now(),
     protectUntil: Date.now() + 4000
   };
@@ -316,6 +350,12 @@ function grantXp(p, amount) {
     p.xp -= xpNeeded(p.level);
     p.level++;
     leveled = true;
+    // 2nd job advancement at level 30
+    if (p.level >= 30 && !p.adv) {
+      p.adv = 1;
+      broadcast({ t: 'event', kind: 'boss', text: '⭐ ' + p.name + ' has advanced to ' + ADV_NAMES[p.cls].toUpperCase() + '!' });
+      broadcast({ t: 'event', kind: 'levelup', id: p.id, level: p.level });
+    }
     recalcStats(p);
     p.hp = p.maxHp;
     broadcast({ t: 'event', kind: 'levelup', id: p.id, level: p.level });
@@ -354,7 +394,9 @@ function baseDmg(p) { return p.atk + p.level * 1.5 + Math.random() * 6 - 2; }
 function dmgRoll(p, mult) {
   let d = baseDmg(p) * mult * (isBuffed(p) ? 1.6 : 1);
   d *= 1 + cardEff(p, 'w', 'dmg');                        // Mushy card: +% damage
-  if (Math.random() < cardEff(p, 'w', 'crit')) d *= 2;    // Dire Wolf card: crit
+  if (Date.now() < p.tsUntil) d *= 1.3;                   // True Sight buff
+  const critCh = cardEff(p, 'w', 'crit') + (Date.now() < p.tsUntil ? 0.15 : 0);
+  if (Math.random() < critCh) d *= 2;                     // crit
   return Math.max(1, Math.floor(d));
 }
 function lifesteal(p, dmg) {
@@ -458,12 +500,19 @@ function hitAny(a, tgt, dmg) {
     monstersInRange(o.x, o.y, 100).forEach(mm => hitMonster(a, mm, Math.max(1, Math.floor(baseDmg(a) * 2.5))));
     playersInRange(a, o.x, o.y, 100).forEach(vv => hitPlayer(a, vv, baseDmg(a) * 2.5));
   }
+  // SOLARIS weapon card: chance of a solar flare
+  if (Math.random() < cardEff(a, 'w', 'solar')) {
+    const o = tgt.m || tgt.p;
+    broadcast({ t: 'event', kind: 'skillfx', id: a.id, skill: 'inferno', x: Math.round(o.x), y: Math.round(o.y) });
+    monstersInRange(o.x, o.y, 120).forEach(mm => hitMonster(a, mm, Math.max(1, Math.floor(baseDmg(a) * 3))));
+    playersInRange(a, o.x, o.y, 120).forEach(vv => hitPlayer(a, vv, baseDmg(a) * 3));
+  }
 }
 function tgtPos(tgt) { return tgt.m ? tgt.m : tgt.p; }
 
 function useSkill(p, n) {
   const defs = SKILLS[p.cls];
-  if (!defs || n < 0 || n > 2) return;
+  if (!defs || n < 0 || n > 5) return;
   const def = defs[n];
   const now = Date.now();
   if (p.level < def.lvl) return;
@@ -545,6 +594,70 @@ function useSkill(p, n) {
   } else if (def.key === 'greed') {
     p.zenyBuffUntil = now + 10000;
     used = true;
+  } else if (def.key === 'bbash') {
+    used = aoe(p.x, p.y, 100, 3.5, false);
+  } else if (def.key === 'quicken') {
+    p.quickenUntil = now + 10000;
+    used = true;
+  } else if (def.key === 'lordaura') {
+    const t = nearestAny(p, c.range + 30);
+    if (t) { const o = tgtPos(t); fx.x = Math.round(o.x); fx.y = Math.round(o.y); hitAny(p, t, dmgRoll(p, 7)); used = true; }
+  } else if (def.key === 'focus') {
+    const t = nearestAny(p, 300);
+    if (t) { const o = tgtPos(t); fx.x = Math.round(o.x); fx.y = Math.round(o.y); hitAny(p, t, dmgRoll(p, 6)); used = true; }
+  } else if (def.key === 'astorm') {
+    const t = nearestAny(p, 280);
+    const o = t ? tgtPos(t) : p;
+    fx.x = Math.round(o.x); fx.y = Math.round(o.y);
+    used = aoe(o.x, o.y, 130, 2, false);
+  } else if (def.key === 'truesight') {
+    p.tsUntil = now + 10000;
+    used = true;
+  } else if (def.key === 'jupitel') {
+    const t = nearestAny(p, 280);
+    if (t) { const o = tgtPos(t); fx.x = Math.round(o.x); fx.y = Math.round(o.y); hitAny(p, t, dmgRoll(p, 4.5)); used = true; }
+  } else if (def.key === 'stormgust') {
+    const t = nearestAny(p, 280);
+    const o = t ? tgtPos(t) : p;
+    fx.x = Math.round(o.x); fx.y = Math.round(o.y);
+    const ms = monstersInRange(o.x, o.y, 140);
+    const ps = playersInRange(p, o.x, o.y, 140);
+    ms.forEach(m => { hitMonster(p, m, dmgRoll(p, 2)); m.slowUntil = now + 5000; });
+    ps.forEach(v => hitPlayer(p, v, dmgRoll(p, 2)));
+    used = ms.length + ps.length > 0;
+  } else if (def.key === 'inferno') {
+    const t = nearestAny(p, 280);
+    const o = t ? tgtPos(t) : p;
+    fx.x = Math.round(o.x); fx.y = Math.round(o.y);
+    used = aoe(o.x, o.y, 120, 4, false);
+  } else if (def.key === 'sonic') {
+    const t = nearestAny(p, c.range + 16);
+    if (t) {
+      const o = tgtPos(t); fx.x = Math.round(o.x); fx.y = Math.round(o.y);
+      for (let i = 0; i < 8; i++) hitAny(p, t, dmgRoll(p, 0.8));
+      used = true;
+    }
+  } else if (def.key === 'venom') {
+    const t = nearestAny(p, c.range + 16);
+    if (t) {
+      const o = tgtPos(t); fx.x = Math.round(o.x); fx.y = Math.round(o.y);
+      hitAny(p, t, dmgRoll(p, 3));
+      if (t.m) t.m.slowUntil = now + 5000;
+      used = true;
+    }
+  } else if (def.key === 'crossimpact') {
+    const t = nearestAny(p, c.range + 30);
+    if (t) { const o = tgtPos(t); fx.x = Math.round(o.x); fx.y = Math.round(o.y); hitAny(p, t, dmgRoll(p, 6)); used = true; }
+  } else if (def.key === 'cartterm') {
+    if (p.zeny >= 100) {
+      const t = nearestAny(p, c.range + 30);
+      if (t) { p.zeny -= 100; const o = tgtPos(t); fx.x = Math.round(o.x); fx.y = Math.round(o.y); hitAny(p, t, dmgRoll(p, 5)); used = true; }
+    }
+  } else if (def.key === 'goldrush') {
+    p.zenyBuffUntil = now + 15000;
+    used = true;
+  } else if (def.key === 'meltdown') {
+    used = aoe(p.x, p.y, 110, 3, false);
   }
 
   if (used || def.key === 'warcry') {
@@ -617,7 +730,7 @@ wss.on('connection', (ws) => {
     if (msg.t === 'attack') {
       const c = CLASSES[me.cls];
       const now = Date.now();
-      if (now - me.lastAtk < c.cooldown * (1 - cardEff(me, 'w', 'aspd'))) return;
+      if (now - me.lastAtk < c.cooldown * (1 - cardEff(me, 'w', 'aspd')) * (now < me.quickenUntil ? 0.6 : 1)) return;
       me.lastAtk = now;
       broadcast({ t: 'event', kind: 'swing', id: me.id, cls: me.cls, dir: me.dir });
       const t = nearestAny(me, c.range + 16);
@@ -861,7 +974,7 @@ function publicPlayer(p) {
     d: p.dir, mv: p.moving, hp: p.hp, mh: p.maxHp, lv: p.level,
     xp: p.xp, xn: xpNeeded(p.level), z: p.zeny, dead: p.dead, b: isBuffed(p) ? 1 : 0,
     eq: [p.eq.wt, p.eq.wp, p.eq.at, p.eq.ap], po: [p.eq.red, p.eq.white],
-    wc: p.eq.wc, ac: p.eq.ac, cd: p.eq.cards,
+    wc: p.eq.wc, ac: p.eq.ac, cd: p.eq.cards, adv: p.adv || 0,
     spm: 1 + cardEff(p, 'a', 'spd'), au: p.eq.ac === 'direking' ? 1 : 0
   };
 }

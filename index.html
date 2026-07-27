@@ -90,7 +90,7 @@
   <canvas id="game" width="960" height="600"></canvas>
   <div id="chatlog"></div>
   <input id="chatin" maxlength="120" placeholder="Say something... (Enter to send, Esc to close)">
-  <div id="hint">WASD / Arrows — move<br>SPACE — attack<br>1 / 2 / 3 — skills<br>4 / 5 — potions<br>B — shop · C — cards<br>TAB — players · ENTER — chat</div>
+  <div id="hint">WASD / Arrows — move<br>SPACE — attack<br>1-6 — skills<br>7 / 8 — potions<br>B — shop · C — cards<br>TAB — players · ENTER — chat</div>
   <div id="touchui" style="display:none;">
     <div id="joy"><div id="joyknob"></div></div>
     <div id="btnAtk" class="tbtn">ATK</div>
@@ -137,12 +137,19 @@ const bubbles = {};               // id -> {text, until}
 let keys = {}, lastAtkSent = 0, camX = 0, camY = 0, tick = 0;
 let onlineCount = 1;
 let mySkills = [];                // [{name,lvl,cd}] from server
-let skillCds = [0, 0, 0];         // ready-at timestamps
+let skillCds = [0, 0, 0, 0, 0, 0]; // ready-at timestamps
 let banner = null;                // {text, until}
 let roster = [];                  // all online players (from state)
 let showRank = false;             // TAB panel open
 let rankTop = [];                 // hall of fame from server
-const SKILL_KEYS = { swordsman: ['bash','whirl','warcry'], archer: ['dstrafe','arrowrain','snipe'], mage: ['firebolt','frostnova','meteor'], thief: ['dbl','backstab','shadow'], merchant: ['mammonite','cointoss','greed'] };
+const SKILL_KEYS = {
+  swordsman: ['bash','whirl','warcry','bbash','quicken','lordaura'],
+  archer: ['dstrafe','arrowrain','snipe','focus','astorm','truesight'],
+  mage: ['firebolt','frostnova','meteor','jupitel','stormgust','inferno'],
+  thief: ['dbl','backstab','shadow','sonic','venom','crossimpact'],
+  merchant: ['mammonite','cointoss','greed','cartterm','goldrush','meltdown']
+};
+const ADV_NAMES = { swordsman: 'Knight', archer: 'Sniper', mage: 'Wizard', thief: 'Assassin', merchant: 'Tycoon' };
 let showShop = false;
 let shopRects = [];               // clickable areas of the shop panel
 let shopNote = null;              // {msg, ok, until}
@@ -155,7 +162,10 @@ const CARD_INFO = {
   wolf:      ['Dire Wolf Card',  'W: +8% critical x2',   'A: +10% move speed'],
   skeleton:  ['Skeleton Card',   'W: +8% lifesteal',     'A: +10% dodge'],
   ghoul:     ['Ghoul Card',      'W: +15% PvP damage',   'A: +100HP +5% reduce'],
-  direking:  ['GOREHORN CARD',   'W: 10% METEOR strike', 'A: FIRE AURA burns foes']
+  direking:  ['GOREHORN CARD',   'W: 10% METEOR strike', 'A: FIRE AURA burns foes'],
+  crab:      ['Tide Crab Card',  'W: +8 atk',            'A: +60HP +5% reduce'],
+  siren:     ['Siren Card',      'W: +12% atk speed',    'A: +5 HP regen'],
+  solaris:   ['SOLARIS CARD',    'W: 15% SOLAR FLARE',   'A: +200HP +regen +speed']
 };
 const SHOP_NPC = { x: 15.5 * 32, y: 5 * 32 };
 function clientInTown() { return me && me.x >= 8 * 32 && me.x <= 18 * 32 && me.y >= 3 * 32 && me.y <= 8 * 32; }
@@ -283,7 +293,7 @@ function onMsg(e) {
     MAP = m.map.map(r => r.split('')); MH = MAP.length; MW = MAP[0].length;
     me = { ...m.you, x: m.you.x, y: m.you.y, dir:'down', moving:false };
     mySkills = m.skills || [];
-    skillCds = [0, 0, 0];
+    skillCds = [0, 0, 0, 0, 0, 0];
     document.getElementById('login').style.display = 'none';
     if (m.restored) log('Welcome back, ' + me.n + '! Lv' + me.lv + ' ' + me.c + ' restored.', 'lvl');
     else log('Welcome to Rune Valley, ' + me.n + '! Remember your PIN.', 'sys');
@@ -313,7 +323,7 @@ function onMsg(e) {
         // authoritative stats; keep local position prediction unless dead/teleported
         const dist = Math.hypot(p.x - me.x, p.y - me.y);
         me.hp = p.hp; me.mh = p.mh; me.lv = p.lv; me.xp = p.xp; me.xn = p.xn; me.z = p.z; me.b = p.b; me.eq = p.eq; me.po = p.po;
-        me.wc = p.wc; me.ac = p.ac; me.cards = p.cd; me.spm = p.spm; me.au = p.au;
+        me.wc = p.wc; me.ac = p.ac; me.cards = p.cd; me.spm = p.spm; me.au = p.au; me.adv = p.adv;
         if (p.dead !== me.dead || dist > 80) { me.x = p.x; me.y = p.y; }
         me.dead = p.dead;
       } else {
@@ -434,6 +444,26 @@ function spawnSkillFx(m) {
     case 'mammonite': fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:40,  col:'255,215,106' }); break;
     case 'cointoss':  fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:26,  col:'255,230,140' }); break;
     case 'greed':     fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:70,  col:'255,200,60' }); break;
+    case 'bbash':     fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:100, col:'255,255,255' }); break;
+    case 'quicken':   fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:50,  col:'120,255,220' }); break;
+    case 'lordaura':  fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:55,  col:'255,240,120' });
+                      fx.push({ ty:'poof', x:m.x, y:m.y, t:0 }); break;
+    case 'focus':     fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:40,  col:'255,255,200' }); break;
+    case 'astorm':    fx.push({ ty:'rain', x:m.x, y:m.y, t:0 });
+                      fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:130, col:'180,255,150' }); break;
+    case 'truesight': fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:60,  col:'255,120,220' }); break;
+    case 'jupitel':   fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:45,  col:'150,180,255' }); break;
+    case 'stormgust': fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:140, col:'150,230,255' });
+                      fx.push({ ty:'rain', x:m.x, y:m.y, t:0 }); break;
+    case 'inferno':   fx.push({ ty:'meteor', x:m.x, y:m.y, t:0 });
+                      fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:120, col:'255,90,30' }); break;
+    case 'sonic':     for (let k = 0; k < 4; k++) fx.push({ ty:'ring', x:m.x + (k%2)*14-7, y:m.y - k*6, t:-k*3, max:22, col:'220,180,255' }); break;
+    case 'venom':     fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:34,  col:'140,255,90' }); break;
+    case 'crossimpact': fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:48, col:'255,80,180' }); break;
+    case 'cartterm':  fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:52,  col:'255,215,106' });
+                      fx.push({ ty:'poof', x:m.x, y:m.y, t:0 }); break;
+    case 'goldrush':  fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:80,  col:'255,215,60' }); break;
+    case 'meltdown':  fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:110, col:'255,140,40' }); break;
   }
 }
 
@@ -491,12 +521,12 @@ window.addEventListener('keydown', e => {
     return;
   }
   if (e.key === 'Enter') { chatOpen = true; chatin.style.display = 'block'; setTimeout(() => chatin.focus(), 0); e.preventDefault(); return; }
-  if (['1','2','3'].includes(e.key) && me && !me.dead) { ws.send(JSON.stringify({ t:'skill', n: +e.key })); return; }
+  if (['1','2','3','4','5','6'].includes(e.key) && me && !me.dead) { ws.send(JSON.stringify({ t:'skill', n: +e.key })); return; }
   if (e.key === 'Tab') { e.preventDefault(); toggleRank(); return; }
   if ((e.key === 'b' || e.key === 'B') && me) { toggleShop(); return; }
   if ((e.key === 'c' || e.key === 'C') && me) { showCards = !showCards; return; }
-  if (e.key === '4' && me && !me.dead) { ws.send(JSON.stringify({ t:'pot', kind:'red' })); return; }
-  if (e.key === '5' && me && !me.dead) { ws.send(JSON.stringify({ t:'pot', kind:'white' })); return; }
+  if (e.key === '7' && me && !me.dead) { ws.send(JSON.stringify({ t:'pot', kind:'red' })); return; }
+  if (e.key === '8' && me && !me.dead) { ws.send(JSON.stringify({ t:'pot', kind:'white' })); return; }
   if (e.key === 'Escape' && (showShop || showCards)) { showShop = false; showCards = false; return; }
   keys[e.key.toLowerCase()] = true;
   if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(e.key.toLowerCase())) e.preventDefault();
@@ -697,6 +727,50 @@ function drawMob(mo, animT) {
     cx.fillStyle = 'rgba(0,0,0,.7)'; cx.fillText('GOREHORN', x + 1, y - 47);
     cx.fillStyle = '#ff9a3c'; cx.fillText('GOREHORN', x, y - 48);
     drawBar(x - 30, y - 44, 60, 4, t.hp / t.mh, '#ff5050');
+  } else if (t.ty === 'crab') {
+    cx.fillStyle = '#e06040';
+    cx.fillRect(x - 12, y - 12, 24, 10);                               // shell
+    cx.fillRect(x - 16, y - 8, 5, 6); cx.fillRect(x + 11, y - 8, 5, 6);// claws
+    cx.fillStyle = '#b04830';
+    cx.fillRect(x - 10, y - 3, 3, 4); cx.fillRect(x - 4, y - 3, 3, 4);
+    cx.fillRect(x + 2, y - 3, 3, 4); cx.fillRect(x + 8, y - 3, 3, 4);  // legs
+    cx.fillStyle = '#fff';
+    cx.fillRect(x - 5, y - 16, 3, 5); cx.fillRect(x + 2, y - 16, 3, 5);// eye stalks
+    cx.fillStyle = '#1a1423'; cx.fillRect(x - 5, y - 14, 3, 2); cx.fillRect(x + 2, y - 14, 3, 2);
+  } else if (t.ty === 'siren') {
+    cx.fillStyle = '#5ac8e0';
+    cx.fillRect(x - 5, y - 26, 10, 9);                                  // head
+    cx.fillRect(x - 7, y - 17, 14, 10);                                 // body
+    cx.fillStyle = '#3a98b8';
+    cx.fillRect(x - 9, y - 7, 18, 5);                                   // tail
+    cx.fillRect(x - 13, y - 4, 5, 4); cx.fillRect(x + 8, y - 4, 5, 4);  // fins
+    cx.fillStyle = '#8ae8f8';
+    cx.fillRect(x - 9, y - 28, 4, 12); cx.fillRect(x + 5, y - 28, 4, 12); // flowing hair
+    cx.fillStyle = '#1a1423'; cx.fillRect(x - 3, y - 23, 2, 2); cx.fillRect(x + 1, y - 23, 2, 2);
+  } else if (t.ty === 'solaris') {
+    // MVP: giant golden sun beast
+    const pulse = 2 * Math.sin(animT / 8);
+    cx.fillStyle = 'rgba(255,200,60,.18)';
+    cx.beginPath(); cx.arc(x, y - 18, 46 + pulse, 0, 7); cx.fill();
+    for (let k = 0; k < 8; k++) {                                       // sun rays
+      const a = k / 8 * 6.28 + animT / 30;
+      cx.fillStyle = 'rgba(255,170,40,' + (0.4 + 0.2 * Math.sin(animT / 6 + k)) + ')';
+      cx.fillRect(x + Math.cos(a) * 40 - 2, y - 18 + Math.sin(a) * 40 - 2, 5, 5);
+    }
+    cx.fillStyle = '#e8a020';
+    cx.fillRect(x - 30, y - 28, 52, 22);                                // body
+    cx.fillRect(x + 16, y - 42, 22, 20);                                // head
+    cx.fillStyle = '#c07810';
+    cx.fillRect(x - 30, y - 6, 7, 6); cx.fillRect(x - 14, y - 6, 7, 6);
+    cx.fillRect(x + 2, y - 6, 7, 6); cx.fillRect(x + 18, y - 6, 7, 6);  // legs
+    cx.fillStyle = '#ffd76a';
+    cx.fillRect(x + 12, y - 46, 30, 6);                                 // mane crown
+    cx.fillRect(x - 40, y - 28, 12, 6);                                 // tail
+    cx.fillStyle = '#ff3030'; cx.fillRect(x + 28, y - 36, 4, 4);        // eye
+    cx.font = 'bold 12px Courier New'; cx.textAlign = 'center';
+    cx.fillStyle = 'rgba(0,0,0,.7)'; cx.fillText('☀ SOLARIS [MVP]', x + 1, y - 55);
+    cx.fillStyle = '#ffb020'; cx.fillText('☀ SOLARIS [MVP]', x, y - 56);
+    drawBar(x - 40, y - 52, 80, 5, t.hp / t.mh, '#ff9020');
   } else if (t.ty === 'wolf') {
     cx.fillStyle = '#6b7280';
     cx.fillRect(x - 13, y - 12, 22, 9);                                  // body
@@ -710,7 +784,7 @@ function drawMob(mo, animT) {
     cx.fillRect(x + 12, y - 15, 2, 2);                                   // eye
   }
   // hp bar + name if hurt or targeting (boss has its own big bar)
-  if (t.ty !== 'direking' && (t.hp < t.mh || t.tg)) {
+  if (t.ty !== 'direking' && t.ty !== 'solaris' && (t.hp < t.mh || t.tg)) {
     drawBar(x - 12, y - 26, 24, 3, t.hp / t.mh, t.tg ? '#ff5050' : '#7ee06a');
   }
 }
@@ -882,7 +956,8 @@ function drawHud() {
 
   cx.textAlign = 'left'; cx.font = 'bold 12px Courier New';
   cx.fillStyle = '#ffd76a';
-  cx.fillText(me.n + ' Lv' + me.lv + (compact ? '' : '  (' + me.c.toUpperCase() + ')'), 12, H - 13);
+  const clsTitle = me.adv ? ADV_NAMES[me.c] : me.c;
+  cx.fillText((me.adv ? '★' : '') + me.n + ' Lv' + me.lv + (compact ? '' : '  (' + clsTitle.toUpperCase() + ')'), 12, H - 13);
 
   if (compact) {
     // stacked mini-block above the bottom bar (left side)
@@ -1154,31 +1229,34 @@ cv.addEventListener('pointerdown', e => {
 
 function drawSkillBar() {
   if (!mySkills.length || !me) return;
-  const bx = cv.width / 2 - 62, by = cv.height - 82;
-  for (let i = 0; i < 3; i++) {
+  const slots = mySkills.length;
+  const sw = cv.width < 760 ? 36 : 40, gap = 4;
+  const bx = cv.width / 2 - (slots * (sw + gap)) / 2, by = cv.height - 82;
+  for (let i = 0; i < slots; i++) {
     const def = mySkills[i]; if (!def) continue;
-    const x = bx + i * 44;
-    cx.fillStyle = 'rgba(12,8,22,.8)'; cx.fillRect(x, by, 40, 40);
-    cx.strokeStyle = '#4a3f66'; cx.strokeRect(x + .5, by + .5, 39, 39);
+    const x = bx + i * (sw + gap);
+    const advSkill = def.lvl >= 30;
+    cx.fillStyle = 'rgba(12,8,22,.8)'; cx.fillRect(x, by, sw, sw);
+    cx.strokeStyle = advSkill ? '#8a6a20' : '#4a3f66'; cx.strokeRect(x + .5, by + .5, sw - 1, sw - 1);
     const unlocked = me.lv >= def.lvl;
     cx.textAlign = 'center';
     if (unlocked) {
-      cx.font = '9px Courier New'; cx.fillStyle = '#ffd76a';
-      cx.fillText(def.name.split(' ')[0].slice(0, 7), x + 20, by + 18);
+      cx.font = '8px Courier New'; cx.fillStyle = advSkill ? '#ffe9a8' : '#ffd76a';
+      cx.fillText(def.name.split(' ')[0].slice(0, 7), x + sw / 2, by + 16);
       const rem = skillCds[i] - Date.now();
       if (rem > 0) {
         const frac = Math.min(1, rem / def.cd);
         cx.fillStyle = 'rgba(0,0,0,.68)';
-        cx.fillRect(x, by + 40 * (1 - frac), 40, 40 * frac);
-        cx.font = 'bold 11px Courier New'; cx.fillStyle = '#fff';
-        cx.fillText(Math.ceil(rem / 1000) + 's', x + 20, by + 32);
+        cx.fillRect(x, by + sw * (1 - frac), sw, sw * frac);
+        cx.font = 'bold 10px Courier New'; cx.fillStyle = '#fff';
+        cx.fillText(Math.ceil(rem / 1000) + 's', x + sw / 2, by + sw - 8);
       }
     } else {
-      cx.font = '9px Courier New'; cx.fillStyle = '#6a6080';
-      cx.fillText('Lv' + def.lvl, x + 20, by + 24);
+      cx.font = '8px Courier New'; cx.fillStyle = '#6a6080';
+      cx.fillText('Lv' + def.lvl, x + sw / 2, by + sw / 2 + 3);
     }
-    cx.font = 'bold 10px Courier New'; cx.fillStyle = '#8fd8ff';
-    cx.fillText(String(i + 1), x + 7, by + 11);
+    cx.font = 'bold 9px Courier New'; cx.fillStyle = '#8fd8ff';
+    cx.fillText(String(i + 1), x + 6, by + 10);
   }
 }
 
@@ -1216,9 +1294,9 @@ function frame() {
   for (const id in mobs) ents.push({ y: mobs[id].cur.y, draw: () => drawMob(mobs[id], tick) });
   for (const id in others) {
     const o = others[id]; const t = o.tgt; if (!t) continue;
-    ents.push({ y: o.cur.y, draw: () => { drawChar(o.cur.x, o.cur.y, t.c, t.d, t.mv, o.anim, t.n, t.hp, t.mh, t.lv, false, t.dead, t.b, t.au); drawBubble(id, o.cur.x, o.cur.y); } });
+    ents.push({ y: o.cur.y, draw: () => { drawChar(o.cur.x, o.cur.y, t.c, t.d, t.mv, o.anim, (t.adv ? '★' : '') + t.n, t.hp, t.mh, t.lv, false, t.dead, t.b, t.au); drawBubble(id, o.cur.x, o.cur.y); } });
   }
-  ents.push({ y: me.y, draw: () => { drawChar(me.x, me.y, me.c, me.dir, me.moving, tick, me.n, me.hp, me.mh, me.lv, true, me.dead, me.b, me.au); drawBubble(myId, me.x, me.y); } });
+  ents.push({ y: me.y, draw: () => { drawChar(me.x, me.y, me.c, me.dir, me.moving, tick, (me.adv ? '★' : '') + me.n, me.hp, me.mh, me.lv, true, me.dead, me.b, me.au); drawBubble(myId, me.x, me.y); } });
   // trees drawn on top of ground but below entities standing lower — draw canopy after entities for simple depth
   ents.sort((a, b) => a.y - b.y).forEach(e => e.draw());
 
