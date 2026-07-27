@@ -90,7 +90,7 @@
   <canvas id="game" width="960" height="600"></canvas>
   <div id="chatlog"></div>
   <input id="chatin" maxlength="120" placeholder="Say something... (Enter to send, Esc to close)">
-  <div id="hint">WASD / Arrows — move<br>SPACE — attack<br>1-6 — skills<br>7 / 8 — potions<br>B — shop · C — cards<br>TAB — players · ENTER — chat</div>
+  <div id="hint">WASD / Arrows — move<br>SPACE — attack<br>1-7 — skills (7 = ULTIMATE at Lv99)<br>8 / 9 — potions<br>B — shop · C — cards<br>TAB — players · ENTER — chat</div>
   <div id="touchui" style="display:none;">
     <div id="joy"><div id="joyknob"></div></div>
     <div id="btnAtk" class="tbtn">ATK</div>
@@ -139,17 +139,17 @@ const bubbles = {};               // id -> {text, until}
 let keys = {}, lastAtkSent = 0, camX = 0, camY = 0, tick = 0;
 let onlineCount = 1;
 let mySkills = [];                // [{name,lvl,cd}] from server
-let skillCds = [0, 0, 0, 0, 0, 0]; // ready-at timestamps
+let skillCds = [0, 0, 0, 0, 0, 0, 0]; // ready-at timestamps
 let banner = null;                // {text, until}
 let roster = [];                  // all online players (from state)
 let showRank = false;             // TAB panel open
 let rankTop = [];                 // hall of fame from server
 const SKILL_KEYS = {
-  swordsman: ['bash','whirl','warcry','bbash','quicken','lordaura'],
-  archer: ['dstrafe','arrowrain','snipe','focus','astorm','truesight'],
-  mage: ['firebolt','frostnova','meteor','jupitel','stormgust','inferno'],
-  thief: ['dbl','backstab','shadow','sonic','venom','crossimpact'],
-  merchant: ['mammonite','cointoss','greed','cartterm','goldrush','meltdown']
+  swordsman: ['bash','whirl','warcry','bbash','quicken','lordaura','ragnarok'],
+  archer: ['dstrafe','arrowrain','snipe','focus','astorm','truesight','arrowgod'],
+  mage: ['firebolt','frostnova','meteor','jupitel','stormgust','inferno','meteorstorm'],
+  thief: ['dbl','backstab','shadow','sonic','venom','crossimpact','deathdance'],
+  merchant: ['mammonite','cointoss','greed','cartterm','goldrush','meltdown','midas']
 };
 const ADV_NAMES = { swordsman: 'Knight', archer: 'Sniper', mage: 'Wizard', thief: 'Assassin', merchant: 'Tycoon' };
 let showShop = false;
@@ -190,7 +190,8 @@ const CARD_INFO = {
   siren:     ['Siren Card',      'W: +12% atk speed',    'A: +5 HP regen'],
   solaris:   ['SOLARIS CARD',    'W: 15% SOLAR FLARE',   'A: +200HP +regen +speed'],
   zombie:    ['Zombie Card',     'W: +18% damage',       'A: +150HP +5% reduce'],
-  plague:    ['Plaguebearer Card', 'W: +12% lifesteal',  'A: +8 HP regen']
+  plague:    ['Plaguebearer Card', 'W: +12% lifesteal',  'A: +8 HP regen'],
+  necrolord: ['NECROLORD CARD',  'W: +25% dmg +10% lifesteal', 'A: +300HP +10% reduce']
 };
 const SHOP_NPC = { x: 15.5 * 32, y: 5 * 32 };
 function clientInTown() { return me && me.x >= 8 * 32 && me.x <= 18 * 32 && me.y >= 3 * 32 && me.y <= 8 * 32; }
@@ -326,7 +327,7 @@ function onMsg(e) {
     MAP = m.map.map(r => r.split('')); MH = MAP.length; MW = MAP[0].length;
     me = { ...m.you, x: m.you.x, y: m.you.y, dir:'down', moving:false };
     mySkills = m.skills || [];
-    skillCds = [0, 0, 0, 0, 0, 0];
+    skillCds = [0, 0, 0, 0, 0, 0, 0];
     document.getElementById('login').style.display = 'none';
     if (m.restored) log('Welcome back, ' + me.n + '! Lv' + me.lv + ' ' + me.c + ' restored.', 'lvl');
     else log('Welcome to 007 Online, ' + me.n + '! Remember your PIN.', 'sys');
@@ -452,6 +453,13 @@ function handleEvent(m) {
       fx.push({ ty:'dmg', x: m.x, y: m.y - 26, val: '+' + m.amt, t: 0, col: '#7ee06a' });
       break;
     }
+    case 'ascend': {
+      // LEVEL 99 ASCENSION: lightning storm
+      for (let k = 0; k < 5; k++) fx.push({ ty:'ring', x:m.x, y:m.y, t:-k*4, max:120 + k*20, col:'255,235,80' });
+      fx.push({ ty:'meteor', x:m.x, y:m.y, t:0 });
+      if (m.id === myId) log('⚡ YOU HAVE ASCENDED! Ultimate skill unlocked on key [7]!', 'lvl');
+      break;
+    }
     case 'pkill': {
       const txt = '⚔️ ' + m.killer + ' has slain ' + m.victim + '!';
       log(txt, 'lvl');
@@ -503,6 +511,22 @@ function spawnSkillFx(m) {
                       fx.push({ ty:'poof', x:m.x, y:m.y, t:0 }); break;
     case 'goldrush':  fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:80,  col:'255,215,60' }); break;
     case 'meltdown':  fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:110, col:'255,140,40' }); break;
+    // ---- LEVEL 99 ULTIMATES ----
+    case 'ragnarok':  fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:150, col:'255,255,255' });
+                      fx.push({ ty:'ring', x:m.x, y:m.y, t:-4, max:150, col:'255,215,106' });
+                      fx.push({ ty:'meteor', x:m.x, y:m.y, t:0 }); break;
+    case 'arrowgod':  fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:60,  col:'255,255,180' });
+                      fx.push({ ty:'rain', x:m.x, y:m.y, t:0 });
+                      fx.push({ ty:'poof', x:m.x, y:m.y, t:0 }); break;
+    case 'meteorstorm': fx.push({ ty:'meteor', x:m.x, y:m.y, t:0 });
+                      fx.push({ ty:'meteor', x:m.x - 40, y:m.y - 20, t:-5 });
+                      fx.push({ ty:'meteor', x:m.x + 40, y:m.y + 20, t:-10 });
+                      fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:160, col:'255,80,30' }); break;
+    case 'deathdance': for (let k = 0; k < 6; k++) fx.push({ ty:'ring', x:m.x + (k%3)*16-16, y:m.y - (k%2)*14, t:-k*2, max:26, col:'200,120,255' });
+                      fx.push({ ty:'poof', x:m.x, y:m.y, t:0 }); break;
+    case 'midas':     fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:140, col:'255,215,60' });
+                      fx.push({ ty:'ring', x:m.x, y:m.y, t:-5, max:140, col:'255,255,160' });
+                      fx.push({ ty:'poof', x:m.x, y:m.y, t:0 }); break;
   }
 }
 
@@ -560,14 +584,14 @@ window.addEventListener('keydown', e => {
     return;
   }
   if (e.key === 'Enter') { chatOpen = true; chatin.style.display = 'block'; setTimeout(() => chatin.focus(), 0); e.preventDefault(); return; }
-  if (['1','2','3','4','5','6'].includes(e.key) && me && !me.dead) { ws.send(JSON.stringify({ t:'skill', n: +e.key })); return; }
+  if (['1','2','3','4','5','6','7'].includes(e.key) && me && !me.dead) { ws.send(JSON.stringify({ t:'skill', n: +e.key })); return; }
   if (e.key === 'Tab') { e.preventDefault(); toggleRank(); return; }
   if ((e.key === 'b' || e.key === 'B') && me) { toggleShop(); return; }
   if ((e.key === 'c' || e.key === 'C') && me) { showCards = !showCards; showEquip = false; return; }
   if ((e.key === 'e' || e.key === 'E') && me) { showEquip = !showEquip; showCards = false; showStats = false; pickCardFor = null; return; }
   if ((e.key === 'v' || e.key === 'V') && me) { showStats = !showStats; showEquip = false; showCards = false; return; }
-  if (e.key === '7' && me && !me.dead) { ws.send(JSON.stringify({ t:'pot', kind:'red' })); return; }
-  if (e.key === '8' && me && !me.dead) { ws.send(JSON.stringify({ t:'pot', kind:'white' })); return; }
+  if (e.key === '8' && me && !me.dead) { ws.send(JSON.stringify({ t:'pot', kind:'red' })); return; }
+  if (e.key === '9' && me && !me.dead) { ws.send(JSON.stringify({ t:'pot', kind:'white' })); return; }
   if (e.key === 'Escape' && (showShop || showCards || showEquip || showStats)) { showShop = false; showCards = false; showEquip = false; showStats = false; pickCardFor = null; return; }
   keys[e.key.toLowerCase()] = true;
   if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(e.key.toLowerCase())) e.preventDefault();
@@ -651,6 +675,26 @@ function drawChar(x, y, cls, dir, moving, animT, name, hp, mh, lv, isMe, dead, b
   if (buffed && !dead) {
     cx.fillStyle = 'rgba(255,215,106,' + (0.18 + 0.1 * Math.sin(animT / 5)) + ')';
     cx.beginPath(); cx.ellipse(x, y - 12, 20, 26, 0, 0, 7); cx.fill();
+  }
+  // ⚡ LEVEL 99 ASCENSION: lightning aura
+  if (lv >= 99 && !dead) {
+    cx.fillStyle = 'rgba(255,235,80,' + (0.10 + 0.06 * Math.sin(animT / 4)) + ')';
+    cx.beginPath(); cx.ellipse(x, y - 12, 24, 30, 0, 0, 7); cx.fill();
+    cx.strokeStyle = 'rgba(120,220,255,' + (0.55 + 0.35 * Math.sin(animT / 3)) + ')';
+    cx.lineWidth = 2;
+    for (let k = 0; k < 3; k++) {
+      const seed = Math.floor(animT / 5) * 7 + k * 13;
+      const bx = x + (((seed * 31) % 44) - 22);
+      cx.beginPath();
+      cx.moveTo(bx, y - 44);
+      cx.lineTo(bx + (((seed * 17) % 11) - 5), y - 30);
+      cx.lineTo(bx + (((seed * 23) % 13) - 6), y - 16);
+      cx.lineTo(bx + (((seed * 29) % 9) - 4), y - 2);
+      cx.stroke();
+    }
+    cx.font = 'bold 10px Courier New'; cx.textAlign = 'center';
+    cx.fillStyle = 'rgba(0,0,0,.7)'; cx.fillText('⚡99⚡', x + 1, y - 51);
+    cx.fillStyle = '#ffe040'; cx.fillText('⚡99⚡', x, y - 52);
   }
   // shadow
   cx.fillStyle = 'rgba(0,0,0,.3)';
@@ -830,6 +874,33 @@ function drawMob(mo, animT) {
     cx.fillStyle = 'rgba(0,0,0,.7)'; cx.fillText('☀ SOLARIS [MVP]', x + 1, y - 55);
     cx.fillStyle = '#ffb020'; cx.fillText('☀ SOLARIS [MVP]', x, y - 56);
     drawBar(x - 40, y - 52, 80, 5, t.hp / t.mh, '#ff9020');
+  } else if (t.ty === 'necrolord') {
+    // MVP: giant undead grave king with dark aura
+    const pulse = 2 * Math.sin(animT / 8);
+    cx.fillStyle = 'rgba(140,80,200,.16)';
+    cx.beginPath(); cx.arc(x, y - 18, 44 + pulse, 0, 7); cx.fill();
+    for (let k = 0; k < 6; k++) {                                       // wandering souls
+      const a = k / 6 * 6.28 + animT / 24;
+      cx.fillStyle = 'rgba(160,255,140,' + (0.3 + 0.2 * Math.sin(animT / 6 + k)) + ')';
+      cx.beginPath(); cx.arc(x + Math.cos(a) * 38, y - 18 + Math.sin(a) * 26, 3, 0, 7); cx.fill();
+    }
+    cx.fillStyle = '#3a4a34';
+    cx.fillRect(x - 28, y - 30, 50, 24);                                // rotting body
+    cx.fillRect(x + 12, y - 46, 22, 20);                                // head
+    cx.fillStyle = '#2a3626';
+    cx.fillRect(x - 28, y - 6, 7, 6); cx.fillRect(x - 12, y - 6, 7, 6);
+    cx.fillRect(x + 4, y - 6, 7, 6); cx.fillRect(x + 18, y - 6, 7, 6);  // legs
+    cx.fillRect(x - 38, y - 26, 10, 6);                                 // dragging arm
+    cx.fillStyle = '#557a48';
+    cx.fillRect(x - 24, y - 26, 8, 6); cx.fillRect(x - 4, y - 20, 10, 5);// exposed ribs/wounds
+    cx.fillStyle = '#c9a227';
+    cx.fillRect(x + 10, y - 52, 26, 6);                                 // rusted crown
+    cx.fillRect(x + 12, y - 56, 4, 4); cx.fillRect(x + 21, y - 58, 4, 6); cx.fillRect(x + 30, y - 56, 4, 4);
+    cx.fillStyle = '#a0ff60'; cx.fillRect(x + 18, y - 40, 4, 4); cx.fillRect(x + 27, y - 40, 4, 4); // glowing eyes
+    cx.font = 'bold 12px Courier New'; cx.textAlign = 'center';
+    cx.fillStyle = 'rgba(0,0,0,.7)'; cx.fillText('💀 NECROLORD [MVP]', x + 1, y - 63);
+    cx.fillStyle = '#a0ff60'; cx.fillText('💀 NECROLORD [MVP]', x, y - 64);
+    drawBar(x - 40, y - 60, 80, 5, t.hp / t.mh, '#80d050');
   } else if (t.ty === 'wolf') {
     cx.fillStyle = '#6b7280';
     cx.fillRect(x - 13, y - 12, 22, 9);                                  // body
@@ -843,7 +914,7 @@ function drawMob(mo, animT) {
     cx.fillRect(x + 12, y - 15, 2, 2);                                   // eye
   }
   // hp bar + name if hurt or targeting (boss has its own big bar)
-  if (t.ty !== 'direking' && t.ty !== 'solaris' && (t.hp < t.mh || t.tg)) {
+  if (t.ty !== 'direking' && t.ty !== 'solaris' && t.ty !== 'necrolord' && (t.hp < t.mh || t.tg)) {
     drawBar(x - 12, y - 26, 24, 3, t.hp / t.mh, t.tg ? '#ff5050' : '#7ee06a');
   }
 }
@@ -1064,8 +1135,8 @@ function drawHud() {
       cx.textAlign = 'left';
     } else {
       cx.textAlign = 'left'; cx.font = '11px Courier New';
-      cx.fillStyle = '#ff8080'; cx.fillText('[4] Red x' + me.po[0], Math.round(cv.width * 0.86), cv.height - 13);
-      cx.fillStyle = '#f0f0f0'; cx.fillText('[5] White x' + me.po[1], Math.round(cv.width * 0.86), cv.height - 2);
+      cx.fillStyle = '#ff8080'; cx.fillText('[8] Red x' + me.po[0], Math.round(cv.width * 0.86), cv.height - 13);
+      cx.fillStyle = '#f0f0f0'; cx.fillText('[9] White x' + me.po[1], Math.round(cv.width * 0.86), cv.height - 2);
     }
   }
   // gear display
@@ -1415,12 +1486,13 @@ function drawSkillBar() {
     const def = mySkills[i]; if (!def) continue;
     const x = bx + i * (sw + gap);
     const advSkill = def.lvl >= 30;
-    cx.fillStyle = 'rgba(12,8,22,.8)'; cx.fillRect(x, by, sw, sw);
-    cx.strokeStyle = advSkill ? '#8a6a20' : '#4a3f66'; cx.strokeRect(x + .5, by + .5, sw - 1, sw - 1);
+    const ultSkill = def.lvl >= 99;
+    cx.fillStyle = ultSkill ? 'rgba(40,28,4,.9)' : 'rgba(12,8,22,.8)'; cx.fillRect(x, by, sw, sw);
+    cx.strokeStyle = ultSkill ? '#ffb020' : advSkill ? '#8a6a20' : '#4a3f66'; cx.strokeRect(x + .5, by + .5, sw - 1, sw - 1);
     const unlocked = me.lv >= def.lvl;
     cx.textAlign = 'center';
     if (unlocked) {
-      cx.font = '8px Courier New'; cx.fillStyle = advSkill ? '#ffe9a8' : '#ffd76a';
+      cx.font = '8px Courier New'; cx.fillStyle = ultSkill ? '#ffe040' : advSkill ? '#ffe9a8' : '#ffd76a';
       cx.fillText(def.name.split(' ')[0].slice(0, 7), x + sw / 2, by + 16);
       const rem = skillCds[i] - Date.now();
       if (rem > 0) {

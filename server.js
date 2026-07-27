@@ -75,10 +75,11 @@ MAP.push('w'.repeat(52).split(''));                              // open sea
 // ---- ZOMBIE MANIA graveyard island (bridge across the sea from the beach) ----
 MAP[MAP.length - 1][24] = 'c'; MAP[MAP.length - 1][25] = 'c';   // bridge over the sea
 MAP.push(('s'.repeat(24) + 'cc' + 's'.repeat(26)).split(''));    // crypt gate
-for (let i = 0; i < 10; i++) MAP.push(('s' + 'g'.repeat(50) + 's').split(''));
+for (let i = 0; i < 16; i++) MAP.push(('s' + 'g'.repeat(50) + 's').split(''));  // expanded graveyard
 MAP.push('s'.repeat(52).split(''));
 // tombstones
-[[8,58],[16,61],[24,59],[32,63],[40,60],[12,64],[36,57],[44,64],[20,57]].forEach(([x,y]) => { if (MAP[y] && MAP[y][x] === 'g') MAP[y][x] = 's'; });
+[[8,58],[16,61],[24,59],[32,63],[40,60],[12,64],[36,57],[44,64],[20,57],
+ [10,68],[22,70],[34,67],[42,71],[6,71],[28,69],[46,68],[16,72],[38,72]].forEach(([x,y]) => { if (MAP[y] && MAP[y][x] === 'g') MAP[y][x] = 's'; });
 const MAP_H = MAP.length;
 const BLOCKED = new Set(['t','w','s']);
 
@@ -152,7 +153,8 @@ const CARDS = {
   siren:     { name: 'Siren Card',      w: { aspd: 0.12 },   a: { regen: 5 },            drop: 0.014 },
   solaris:   { name: 'SOLARIS CARD',    w: { solar: 0.15 },  a: { hp: 200, regen: 5, spd: 0.05 }, drop: 0.12 },
   zombie:    { name: 'Zombie Card',     w: { dmg: 0.18 },    a: { hp: 150, dr: 0.05 },   drop: 0.012 },
-  plague:    { name: 'Plaguebearer Card', w: { ls: 0.12 },   a: { regen: 8 },            drop: 0.01  }
+  plague:    { name: 'Plaguebearer Card', w: { ls: 0.12 },   a: { regen: 8 },            drop: 0.01  },
+  necrolord: { name: 'NECROLORD CARD',  w: { dmg: 0.25, ls: 0.10 }, a: { hp: 300, dr: 0.10 }, drop: 0.12 }
 };
 function cardEff(p, side, key) {
   // weapon/accessory sockets use card w-effects; armor/shield/head/shoes use a-effects; ★ stars amplify
@@ -221,7 +223,8 @@ const SKILLS = {
     { key: 'warcry',    name: 'War Cry',      lvl: 10, cd: 20000 },
     { key: 'bbash',     name: 'Bowling Bash', lvl: 30, cd: 8000 },
     { key: 'quicken',   name: 'Quicken',      lvl: 35, cd: 20000 },
-    { key: 'lordaura',  name: 'Lord Strike',  lvl: 40, cd: 15000 }
+    { key: 'lordaura',  name: 'Lord Strike',  lvl: 40, cd: 15000 },
+    { key: 'ragnarok',  name: 'RAGNAROK',     lvl: 99, cd: 30000 }
   ],
   archer: [
     { key: 'dstrafe',   name: 'Double Strafe', lvl: 3,  cd: 4000 },
@@ -229,7 +232,8 @@ const SKILLS = {
     { key: 'snipe',     name: 'Snipe',         lvl: 10, cd: 15000 },
     { key: 'focus',     name: 'Focused Arrow', lvl: 30, cd: 10000 },
     { key: 'astorm',    name: 'Arrow Storm',   lvl: 35, cd: 12000 },
-    { key: 'truesight', name: 'True Sight',    lvl: 40, cd: 25000 }
+    { key: 'truesight', name: 'True Sight',    lvl: 40, cd: 25000 },
+    { key: 'arrowgod',  name: 'Arrow of Gods', lvl: 99, cd: 30000 }
   ],
   mage: [
     { key: 'firebolt',  name: 'Firebolt',     lvl: 3,  cd: 4000 },
@@ -237,7 +241,8 @@ const SKILLS = {
     { key: 'meteor',    name: 'Meteor',       lvl: 10, cd: 18000 },
     { key: 'jupitel',   name: 'Jupitel',      lvl: 30, cd: 8000 },
     { key: 'stormgust', name: 'Storm Gust',   lvl: 35, cd: 14000 },
-    { key: 'inferno',   name: 'Hell Inferno', lvl: 40, cd: 16000 }
+    { key: 'inferno',   name: 'Hell Inferno', lvl: 40, cd: 16000 },
+    { key: 'meteorstorm', name: 'Meteor Storm', lvl: 99, cd: 30000 }
   ],
   thief: [
     { key: 'dbl',       name: 'Double Attack', lvl: 3,  cd: 4000 },
@@ -245,7 +250,8 @@ const SKILLS = {
     { key: 'shadow',    name: 'Shadow Dash',   lvl: 10, cd: 12000 },
     { key: 'sonic',     name: 'Sonic Blow',    lvl: 30, cd: 10000 },
     { key: 'venom',     name: 'Venom Edge',    lvl: 35, cd: 12000 },
-    { key: 'crossimpact', name: 'Cross Impact', lvl: 40, cd: 15000 }
+    { key: 'crossimpact', name: 'Cross Impact', lvl: 40, cd: 15000 },
+    { key: 'deathdance', name: 'Death Dance',  lvl: 99, cd: 30000 }
   ],
   merchant: [
     { key: 'mammonite', name: 'Mammonite',    lvl: 3,  cd: 5000 },
@@ -253,7 +259,8 @@ const SKILLS = {
     { key: 'greed',     name: 'Greed Aura',   lvl: 10, cd: 20000 },
     { key: 'cartterm',  name: 'Cart Cannon',  lvl: 30, cd: 10000 },
     { key: 'goldrush',  name: 'Gold Rush',    lvl: 35, cd: 25000 },
-    { key: 'meltdown',  name: 'Meltdown',     lvl: 40, cd: 14000 }
+    { key: 'meltdown',  name: 'Meltdown',     lvl: 40, cd: 14000 },
+    { key: 'midas',     name: 'Midas Wrath',  lvl: 99, cd: 30000 }
   ]
 };
 
@@ -265,12 +272,13 @@ const MONSTER_TYPES = {
   wolf:      { name: 'Dire Wolf',   hp: 680,  atk: 45, xp: 220,  zeny: 135,  speed: 1.9, aggro: 220, lvl: 15 },
   skeleton:  { name: 'Skeleton',    hp: 950,  atk: 55, xp: 380,  zeny: 210,  speed: 1.5, aggro: 240, lvl: 20 },
   ghoul:     { name: 'Ghoul',       hp: 1400, atk: 70, xp: 600,  zeny: 330,  speed: 1.2, aggro: 260, lvl: 25 },
-  direking:  { name: 'Gorehorn the Dire King', hp: 18000, atk: 140, xp: 6000, zeny: 6000, speed: 1.9, aggro: 320, lvl: 40, boss: true, armor: 0.2, enrageAt: 0.4 },
+  direking:  { name: 'GOREHORN the Dire King', hp: 60000, atk: 200, xp: 15000, zeny: 15000, speed: 1.9, aggro: 320, lvl: 55, boss: true, mvp: true, armor: 0.35, enrageAt: 0.4 },
   crab:      { name: 'Tide Crab',   hp: 1200, atk: 60,  xp: 800,   zeny: 450,  speed: 1.0, aggro: 240, lvl: 26 },
   siren:     { name: 'Siren',       hp: 1800, atk: 80,  xp: 1300,  zeny: 700,  speed: 1.3, aggro: 260, lvl: 32 },
-  solaris:   { name: 'SOLARIS the Sun Tyrant', hp: 80000, atk: 220, xp: 25000, zeny: 25000, speed: 2.0, aggro: 340, lvl: 70, boss: true, mvp: true, armor: 0.4, enrageAt: 0.5 },
+  solaris:   { name: 'SOLARIS the Sun Tyrant', hp: 200000, atk: 300, xp: 50000, zeny: 50000, speed: 2.0, aggro: 340, lvl: 80, boss: true, mvp: true, armor: 0.5, enrageAt: 0.5 },
   zombie:    { name: 'Zombie',      hp: 2500, atk: 90,  xp: 2000,  zeny: 900,  speed: 0.9, aggro: 260, lvl: 38 },
-  plague:    { name: 'Plaguebearer', hp: 4200, atk: 115, xp: 3500, zeny: 1500, speed: 1.1, aggro: 280, lvl: 46 }
+  plague:    { name: 'Plaguebearer', hp: 4200, atk: 115, xp: 3500, zeny: 1500, speed: 1.1, aggro: 280, lvl: 46 },
+  necrolord: { name: 'NECROLORD the Grave King', hp: 120000, atk: 260, xp: 35000, zeny: 35000, speed: 1.6, aggro: 340, lvl: 85, boss: true, mvp: true, armor: 0.45, enrageAt: 0.45 }
 };
 // monster skills: fired while chasing a target, on a cooldown ("fx" reuses client skill visuals)
 const MOB_SKILLS = {
@@ -299,8 +307,9 @@ const SPAWN_ZONES = [
   ['crab',      5, 2,  46, 30, 54],
   ['siren',     4, 15, 46, 37, 54],
   ['solaris',   1, 28, 48, 37, 54],
-  ['zombie',    7, 2,  57, 48, 66],
-  ['plague',    3, 20, 57, 48, 66]
+  ['zombie',   10, 2,  57, 48, 72],
+  ['plague',    5, 20, 57, 48, 72],
+  ['necrolord', 1, 30, 64, 46, 71]
 ];
 
 let nextMonsterId = 1;
@@ -432,7 +441,7 @@ function makePlayer(ws, name, cls, pinHash, restore) {
     st: (restore && restore.st) ? { str: 0, vit: 0, agi: 0, dex: 0, int: 0, ...restore.st } : { str: 0, vit: 0, agi: 0, dex: 0, int: 0 },
     sp: (restore && restore.sp !== undefined) ? restore.sp : Math.max(0, (level - 1) * 3),
     adv: restore ? (restore.adv || 0) : 0,
-    lastAtk: 0, lastPot: 0, skillCd: [0, 0, 0, 0, 0, 0], buffUntil: 0, zenyBuffUntil: 0,
+    lastAtk: 0, lastPot: 0, skillCd: [0, 0, 0, 0, 0, 0, 0], buffUntil: 0, zenyBuffUntil: 0,
     quickenUntil: 0, tsUntil: 0,
     dead: false, respawnAt: 0, lastMoveMsg: Date.now(),
     protectUntil: Date.now() + 4000
@@ -457,6 +466,11 @@ function grantXp(p, amount) {
       p.adv = 1;
       broadcast({ t: 'event', kind: 'boss', text: '⭐ ' + p.name + ' has advanced to ' + ADV_NAMES[p.cls].toUpperCase() + '!' });
       broadcast({ t: 'event', kind: 'levelup', id: p.id, level: p.level });
+    }
+    // LEVEL 99 ASCENSION: lightning + ultimate skill unlocked
+    if (p.level === 99) {
+      broadcast({ t: 'event', kind: 'boss', text: '⚡⚡ ' + p.name + ' HAS REACHED LEVEL 99!! THE HEAVENS ROAR — ULTIMATE SKILL UNLOCKED! ⚡⚡' });
+      broadcast({ t: 'event', kind: 'ascend', id: p.id, x: Math.round(p.x), y: Math.round(p.y) });
     }
     recalcStats(p);
     p.hp = p.maxHp;
@@ -644,7 +658,7 @@ function tgtPos(tgt) { return tgt.m ? tgt.m : tgt.p; }
 
 function useSkill(p, n) {
   const defs = SKILLS[p.cls];
-  if (!defs || n < 0 || n > 5) return;
+  if (!defs || n < 0 || n > 6) return;
   const def = defs[n];
   const now = Date.now();
   if (p.level < def.lvl) return;
@@ -790,6 +804,41 @@ function useSkill(p, n) {
     used = true;
   } else if (def.key === 'meltdown') {
     used = aoe(p.x, p.y, 110, 3, false);
+  } else if (def.key === 'ragnarok') {
+    // ULTIMATE: cataclysmic blade storm around the Knight
+    used = aoe(p.x, p.y, 150, 12, false);
+    if (!used) used = true; // always fires with full visual
+  } else if (def.key === 'arrowgod') {
+    // ULTIMATE: divine arrow from extreme range
+    const t = nearestAny(p, 350);
+    if (t) { const o = tgtPos(t); fx.x = Math.round(o.x); fx.y = Math.round(o.y); for (let i = 0; i < 5; i++) hitAny(p, t, dmgRoll(p, 3.5)); used = true; }
+  } else if (def.key === 'meteorstorm') {
+    // ULTIMATE: apocalyptic meteor field + deep slow
+    const t = nearestAny(p, 300);
+    const o = t ? tgtPos(t) : p;
+    fx.x = Math.round(o.x); fx.y = Math.round(o.y);
+    used = aoe(o.x, o.y, 160, 10, true);
+    if (!used) used = true;
+  } else if (def.key === 'deathdance') {
+    // ULTIMATE: teleport flurry of 12 strikes
+    const t = nearestAny(p, 320);
+    if (t) {
+      const o = tgtPos(t);
+      for (const [ox, oy] of [[-30,0],[30,0],[0,-30],[0,30],[-24,-24],[24,24]]) {
+        if (!isBlocked(o.x + ox, o.y + oy)) { p.x = o.x + ox; p.y = o.y + oy; break; }
+      }
+      fx.x = Math.round(o.x); fx.y = Math.round(o.y);
+      for (let i = 0; i < 12; i++) hitAny(p, t, dmgRoll(p, 1.3));
+      used = true;
+    }
+  } else if (def.key === 'midas') {
+    // ULTIMATE: golden shockwave (costs 300z) + greed surge
+    if (p.zeny >= 300) {
+      p.zeny -= 300;
+      p.zenyBuffUntil = now + 10000;
+      used = aoe(p.x, p.y, 140, 11, false);
+      if (!used) used = true;
+    }
   }
 
   if (used || def.key === 'warcry') {
@@ -1183,7 +1232,7 @@ setInterval(() => {
         if (!m.enraged && now > (m.healAt || 0)) {
           m.healAt = now + 10000;
           if (m.hp < t.hp) {
-            m.hp = Math.min(t.hp, m.hp + 400);
+            m.hp = Math.min(t.hp, m.hp + Math.max(400, Math.floor(t.hp * 0.015)));
             broadcast({ t: 'event', kind: 'skillfx', id: m.id, skill: 'goldrush', x: Math.round(m.x), y: Math.round(m.y) });
           }
         }
