@@ -1382,6 +1382,18 @@ function handleChat(p, msg) {
   // admin commands (only the admin hero, protected by their PIN)
   if (text.startsWith('/') && p.name.toLowerCase() === ADMIN_NAME) {
     if (text === '/maint') { startMaintenance(); return; }
+    if (text === '/gmgear') {
+      // forge the ultimate weapon for the GM: MULTIVERSE Celestial Weapon +15 (Awakened) + CELESTIAL CARD ★10
+      if (p.eq.inv.length >= INV_MAX) { sysMsg(p, 'Inventory full - drop something first!'); return; }
+      const it = newItem('w', 5, 4);
+      it.p = 15; it.c = 'celestial'; it.cs = 10;
+      p.eq.inv.push(it);
+      p.eq.eqp.w = it.id;
+      recalcStats(p);
+      sendInv(p); persist(p); sendSave(p);
+      broadcast({ t: 'event', kind: 'boss', text: '⚡🌌 GM 007 now wields the ' + itemName(it) + ' [CELESTIAL CARD ★10] - THE ULTIMATE WEAPON!! 🌌⚡' });
+      return;
+    }
     if (text.startsWith('/call')) {
       const arg = (text.split(' ')[1] || '').toLowerCase();
       const alias = { gorehorn: 'direking', direking: 'direking', solaris: 'solaris', necrolord: 'necrolord', inferno: 'inferno', seraphim: 'seraphim', chronos: 'chronos', celestial: 'celestial' };
