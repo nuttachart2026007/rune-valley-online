@@ -1225,19 +1225,22 @@ function drawRankPanel() {
     cx.fillText('  #' + (i + 1) + ' ' + r.n.padEnd(13) + ' Lv' + String(r.lv).padEnd(4) + r.c.padEnd(11) + r.z + 'z', x0 + 18, y);
     y += 16;
   });
-  if (rankPvp.length) {
-    y += 10;
-    cx.font = 'bold 11px Courier New'; cx.fillStyle = '#ff5050';
-    cx.fillText('⚔ PVP KILLERS - most player kills', x0 + 18, y);
+  y += 10;
+  cx.font = 'bold 11px Courier New'; cx.fillStyle = '#ff5050';
+  cx.fillText('⚔ PVP KILLERS - most player kills', x0 + 18, y);
+  y += 16;
+  cx.font = '11px Courier New';
+  if (!rankPvp.length) {
+    cx.fillStyle = '#a89bc9';
+    cx.fillText('  No kills yet... be the first! (kill = 30% of their zeny)', x0 + 18, y);
     y += 16;
-    cx.font = '11px Courier New';
-    rankPvp.forEach((r, i) => {
-      if (y > y0 + h - 8) return;
-      cx.fillStyle = i === 0 ? '#ff7070' : '#e0a0a0';
-      cx.fillText('  #' + (i + 1) + ' ' + r.n.padEnd(13) + ' Lv' + String(r.lv).padEnd(4) + r.c.padEnd(11) + r.k + ' kills', x0 + 18, y);
-      y += 16;
-    });
   }
+  rankPvp.forEach((r, i) => {
+    if (y > y0 + h - 8) return;
+    cx.fillStyle = i === 0 ? '#ff7070' : '#e0a0a0';
+    cx.fillText('  #' + (i + 1) + ' ' + r.n.padEnd(13) + ' Lv' + String(r.lv).padEnd(4) + r.c.padEnd(11) + r.k + ' kills', x0 + 18, y);
+    y += 16;
+  });
   cx.textAlign = 'center'; cx.font = '10px Courier New'; cx.fillStyle = '#6a6080';
   cx.fillText('press TAB to close', cv.width / 2, y0 + h - 8);
 }
