@@ -53,10 +53,15 @@
           color:#ffe9a8; font-weight:bold; display:flex; align-items:center; justify-content:center;
           pointer-events:auto; touch-action:none; text-shadow:1px 1px 0 #000; user-select:none; -webkit-user-select:none; }
   #btnAtk { right:22px; bottom:56px; width:76px; height:76px; font-size:16px; background:rgba(180,60,60,.4); border-color:rgba(255,120,120,.6); }
-  #btnS1 { right:112px; bottom:44px; width:46px; height:46px; font-size:14px; }
-  #btnS2 { right:128px; bottom:100px; width:46px; height:46px; font-size:14px; }
-  #btnS3 { right:96px; bottom:152px; width:46px; height:46px; font-size:14px; }
-  #btnChat { right:22px; bottom:152px; width:42px; height:42px; font-size:16px; }
+  #btnS1 { right:108px; bottom:40px; width:44px; height:44px; font-size:14px; }
+  #btnS2 { right:108px; bottom:90px; width:44px; height:44px; font-size:14px; }
+  #btnS3 { right:108px; bottom:140px; width:44px; height:44px; font-size:14px; }
+  #btnS4 { right:158px; bottom:40px; width:44px; height:44px; font-size:14px; }
+  #btnS5 { right:158px; bottom:90px; width:44px; height:44px; font-size:14px; }
+  #btnS6 { right:158px; bottom:140px; width:44px; height:44px; font-size:14px; }
+  #btnS7 { right:30px; bottom:142px; width:52px; height:52px; font-size:13px;
+           background:rgba(160,110,10,.45); border-color:rgba(255,190,50,.75); color:#ffe040; }
+  #btnChat { right:36px; bottom:204px; width:42px; height:42px; font-size:16px; }
   @media (max-width: 1000px), (pointer: coarse) {
     html, body { height:100%; overflow:hidden; overscroll-behavior:none; position:fixed; inset:0; width:100%; }
     body { align-items:stretch; justify-content:stretch; }
@@ -73,10 +78,14 @@
     #joy { left:calc(14px + env(safe-area-inset-left)); bottom:calc(70px + env(safe-area-inset-bottom)); width:132px; height:132px; }
     #joyknob { left:38px; top:38px; width:56px; height:56px; }
     #btnAtk { right:calc(20px + env(safe-area-inset-right)); bottom:calc(74px + env(safe-area-inset-bottom)); width:86px; height:86px; font-size:18px; }
-    #btnS1 { right:calc(118px + env(safe-area-inset-right)); bottom:calc(60px + env(safe-area-inset-bottom)); width:52px; height:52px; }
-    #btnS2 { right:calc(136px + env(safe-area-inset-right)); bottom:calc(122px + env(safe-area-inset-bottom)); width:52px; height:52px; }
-    #btnS3 { right:calc(102px + env(safe-area-inset-right)); bottom:calc(178px + env(safe-area-inset-bottom)); width:52px; height:52px; }
-    #btnChat { right:calc(24px + env(safe-area-inset-right)); bottom:calc(180px + env(safe-area-inset-bottom)); width:46px; height:46px; }
+    #btnS1 { right:calc(116px + env(safe-area-inset-right)); bottom:calc(58px + env(safe-area-inset-bottom)); width:50px; height:50px; }
+    #btnS2 { right:calc(116px + env(safe-area-inset-right)); bottom:calc(114px + env(safe-area-inset-bottom)); width:50px; height:50px; }
+    #btnS3 { right:calc(116px + env(safe-area-inset-right)); bottom:calc(170px + env(safe-area-inset-bottom)); width:50px; height:50px; }
+    #btnS4 { right:calc(172px + env(safe-area-inset-right)); bottom:calc(58px + env(safe-area-inset-bottom)); width:50px; height:50px; }
+    #btnS5 { right:calc(172px + env(safe-area-inset-right)); bottom:calc(114px + env(safe-area-inset-bottom)); width:50px; height:50px; }
+    #btnS6 { right:calc(172px + env(safe-area-inset-right)); bottom:calc(170px + env(safe-area-inset-bottom)); width:50px; height:50px; }
+    #btnS7 { right:calc(34px + env(safe-area-inset-right)); bottom:calc(170px + env(safe-area-inset-bottom)); width:58px; height:58px; font-size:14px; }
+    #btnChat { right:calc(40px + env(safe-area-inset-right)); bottom:calc(238px + env(safe-area-inset-bottom)); width:46px; height:46px; }
     #btnPotR { left:calc(166px + env(safe-area-inset-left)); bottom:calc(64px + env(safe-area-inset-bottom)); width:50px; height:50px; }
     #btnPotW { left:calc(166px + env(safe-area-inset-left)); bottom:calc(126px + env(safe-area-inset-bottom)); width:50px; height:50px; }
     #btnRank { top:calc(10px + env(safe-area-inset-top)); }
@@ -97,6 +106,10 @@
     <div id="btnS1" class="tbtn">1</div>
     <div id="btnS2" class="tbtn">2</div>
     <div id="btnS3" class="tbtn">3</div>
+    <div id="btnS4" class="tbtn">4</div>
+    <div id="btnS5" class="tbtn">5</div>
+    <div id="btnS6" class="tbtn">6</div>
+    <div id="btnS7" class="tbtn">ULT</div>
     <div id="btnChat" class="tbtn">&#128172;</div>
     <div id="btnRank" class="tbtn" style="right:12px; top:12px; bottom:auto; width:42px; height:42px; font-size:16px;">&#127942;</div>
     <div id="btnShop" class="tbtn" style="right:62px; top:12px; bottom:auto; width:42px; height:42px; font-size:16px;">&#128722;</div>
@@ -259,6 +272,10 @@ function setupTouch() {
   bindBtn('btnS1', () => ws.send(JSON.stringify({ t: 'skill', n: 1 })));
   bindBtn('btnS2', () => ws.send(JSON.stringify({ t: 'skill', n: 2 })));
   bindBtn('btnS3', () => ws.send(JSON.stringify({ t: 'skill', n: 3 })));
+  bindBtn('btnS4', () => ws.send(JSON.stringify({ t: 'skill', n: 4 })));
+  bindBtn('btnS5', () => ws.send(JSON.stringify({ t: 'skill', n: 5 })));
+  bindBtn('btnS6', () => ws.send(JSON.stringify({ t: 'skill', n: 6 })));
+  bindBtn('btnS7', () => ws.send(JSON.stringify({ t: 'skill', n: 7 })));
   document.getElementById('btnRank').addEventListener('touchstart', e => {
     e.preventDefault();
     if (me) toggleRank();
