@@ -99,7 +99,7 @@
   <canvas id="game" width="960" height="600"></canvas>
   <div id="chatlog"></div>
   <input id="chatin" maxlength="120" placeholder="Say something... (Enter to send, Esc to close)">
-  <div id="hint">WASD / Arrows — move<br>SPACE — attack<br>1-7 — skills (7 = ULTIMATE at Lv99)<br>8 / 9 — potions<br>B — shop · C — cards<br>TAB — players · ENTER — chat<br>/build in chat — build home (10,000z)</div>
+  <div id="hint">WASD / Arrows — move<br>SPACE — attack<br>1-7 — skills (7 = ULTIMATE at Lv99)<br>8 / 9 — potions<br>B — shop · C — cards<br>TAB — players · ENTER — chat<br>/build — home (100,000z)<br>/party join NAME — team up</div>
   <div id="touchui" style="display:none;">
     <div id="joy"><div id="joyknob"></div></div>
     <div id="btnAtk" class="tbtn">ATK</div>
@@ -158,14 +158,15 @@ let roster = [];                  // all online players (from state)
 let showRank = false;             // TAB panel open
 let rankTop = [];                 // hall of fame from server
 let rankPvp = [];                 // PVP killers leaderboard from server
-const SKILL_KEYS = {
-  swordsman: ['bash','whirl','warcry','bbash','quicken','lordaura','ragnarok'],
-  archer: ['dstrafe','arrowrain','snipe','focus','astorm','truesight','arrowgod'],
-  mage: ['firebolt','frostnova','meteor','jupitel','stormgust','inferno','meteorstorm'],
-  thief: ['dbl','backstab','shadow','sonic','venom','crossimpact','deathdance'],
-  merchant: ['mammonite','cointoss','greed','cartterm','goldrush','meltdown','midas']
+const ADV_PATHS_C = {
+  swordsman: ['Knight', 'Paladin'],
+  archer:    ['Sniper', 'Ranger'],
+  mage:      ['Wizard', 'Sage'],
+  thief:     ['Assassin', 'Ninja'],
+  merchant:  ['Tycoon', 'Alchemist']
 };
-const ADV_NAMES = { swordsman: 'Knight', archer: 'Sniper', mage: 'Wizard', thief: 'Assassin', merchant: 'Tycoon' };
+let jobChoice = null;             // [name1, name2] when the server asks us to pick a path
+let jobRects = [];
 let showShop = false;
 let shopRects = [];               // clickable areas of the shop panel
 let shopNote = null;              // {msg, ok, until}
@@ -185,8 +186,8 @@ const TIER_NAMES_C = {
 };
 const KIND_NAMES_C = { w:'Weapon', a:'Armor', s:'Shield', x:'Accessory', h:'Headgear', b:'Shoes' };
 const KIND_STAT = { w:'+atk', a:'+HP', s:'+block', x:'+dmg%', h:'+HP', b:'+speed' };
-const RARITY_NAMES_C = ['', 'Rare ', 'Epic ', 'Legendary '];
-const RARITY_COLORS = ['#e8e4f5', '#6ab0ff', '#c9a2ff', '#ffb020'];
+const RARITY_NAMES_C = ['', 'Rare ', 'Epic ', 'Legendary ', 'MULTIVERSE '];
+const RARITY_COLORS = ['#e8e4f5', '#6ab0ff', '#c9a2ff', '#ffb020', '#ff5ae0'];
 const EQUIP_SLOTS_C = ['w', 'a', 's', 'h', 'b', 'x1', 'x2'];
 const SLOT_LABELS = { w:'WEAPON', a:'ARMOR', s:'SHIELD', h:'HEAD', b:'SHOES', x1:'ACC 1', x2:'ACC 2' };
 function itemLabel(it) { return RARITY_NAMES_C[it.r || 0] + TIER_NAMES_C[it.k][it.t] + ' ' + KIND_NAMES_C[it.k] + (it.p ? ' +' + it.p : ''); }
@@ -205,7 +206,17 @@ const CARD_INFO = {
   solaris:   ['SOLARIS CARD',    'W: 15% SOLAR FLARE',   'A: +200HP +regen +speed'],
   zombie:    ['Zombie Card',     'W: +18% damage',       'A: +150HP +5% reduce'],
   plague:    ['Plaguebearer Card', 'W: +12% lifesteal',  'A: +8 HP regen'],
-  necrolord: ['NECROLORD CARD',  'W: +25% dmg +10% lifesteal', 'A: +300HP +10% reduce']
+  necrolord: ['NECROLORD CARD',  'W: +25% dmg +10% lifesteal', 'A: +300HP +10% reduce'],
+  demon:     ['Demon Card',      'W: +20% dmg +10% PvP',  'A: +200 HP'],
+  cherub:    ['Cherub Card',     'W: +15% atk speed',     'A: +12 regen +150HP'],
+  inferno:   ['INFERNO CARD',    'W: 20% METEOR +20% dmg', 'A: FIRE AURA 25'],
+  seraphim:  ['SERAPHIM CARD',   'W: +15% lifesteal +15% dmg', 'A: +500HP +15regen +5% reduce'],
+  chronos:   ['CHRONOS CARD',    'W: +40% dmg +10% SOLAR', 'A: +400HP +12% reduce +8% speed'],
+  hero_swordsman: ['HERO CARD Swordsman', 'W: +15 atk +5% dmg', 'A: +150HP +3% reduce'],
+  hero_archer:    ['HERO CARD Archer',    'W: +12% aspd +5% crit', 'A: +8% dodge'],
+  hero_mage:      ['HERO CARD Mage',      'W: +15% dmg',       'A: +6 regen'],
+  hero_thief:     ['HERO CARD Thief',     'W: +10% crit',      'A: +10% speed +5% dodge'],
+  hero_merchant:  ['HERO CARD Merchant',  'W: +10 atk',        'A: +100HP +15% zeny']
 };
 const SHOP_NPC = { x: 15.5 * 32, y: 5 * 32 };
 function clientInTown() { return me && me.x >= 8 * 32 && me.x <= 18 * 32 && me.y >= 3 * 32 && me.y <= 8 * 32; }
@@ -349,8 +360,8 @@ function onMsg(e) {
     document.getElementById('login').style.display = 'none';
     if (m.restored) log('Welcome back, ' + me.n + '! Lv' + me.lv + ' ' + me.c + ' restored.', 'lvl');
     else log('Welcome to 007 Online, ' + me.n + '! Remember your PIN.', 'sys');
-    log('Tip: type /build in chat to build your own home (10,000z) - a safe zone where nothing can hurt you!', 'sys');
-    log('⚠️ PVP deaths now cost 30% zeny + risk of item theft. Fight wisely!', 'sys');
+    log('Tip: /party join NAME to team up - share XP, and only parties of 3+ can hurt the HELL & HEAVEN gods!', 'sys');
+    log('Tip: /build in chat = your own home (100,000z), a safe zone where nothing can hurt you.', 'sys');
     setupTouch();
     requestAnimationFrame(frame);
     return;
@@ -366,6 +377,12 @@ function onMsg(e) {
     return;
   }
   if (m.t === 'rank') { rankTop = m.top || []; rankPvp = m.pvp || []; return; }
+  if (m.t === 'skills') { mySkills = m.skills || []; skillCds = [0, 0, 0, 0, 0, 0, 0]; jobChoice = null; return; }
+  if (m.t === 'jobchoice') {
+    jobChoice = m.options || null;
+    if (jobChoice) log('⭐ JOB ADVANCEMENT! Choose your path: [1] ' + jobChoice[0] + ' or [2] ' + jobChoice[1], 'lvl');
+    return;
+  }
   if (m.t === 'shopnote') { shopNote = { msg: m.msg, ok: m.ok, until: Date.now() + 3500 }; log(m.msg, m.ok ? 'lvl' : 'sys'); return; }
   if (m.t === 'inv') { invD = { inv: m.inv, eqp: m.eqp, st: m.st, sp: m.sp }; return; }
   if (m.t === 's') {
@@ -446,7 +463,7 @@ function handleEvent(m) {
     case 'respawn': break;
     case 'skillfx': {
       if (m.id === myId && me) {
-        const idx = (SKILL_KEYS[me.c] || []).indexOf(m.skill);
+        const idx = mySkills.findIndex(s => s.key === m.skill);
         if (idx >= 0 && mySkills[idx]) skillCds[idx] = Date.now() + mySkills[idx].cd;
       }
       spawnSkillFx(m);
@@ -548,6 +565,35 @@ function spawnSkillFx(m) {
     case 'midas':     fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:140, col:'255,215,60' });
                       fx.push({ ty:'ring', x:m.x, y:m.y, t:-5, max:140, col:'255,255,160' });
                       fx.push({ ty:'poof', x:m.x, y:m.y, t:0 }); break;
+    // ---- PATH 2 JOB SKILLS ----
+    case 'shieldboom': fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:44, col:'200,220,255' });
+                      fx.push({ ty:'poof', x:m.x, y:m.y, t:0 }); break;
+    case 'sanctuary': fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:140, col:'160,255,180' });
+                      fx.push({ ty:'ring', x:m.x, y:m.y, t:-6, max:140, col:'255,255,200' }); break;
+    case 'gcross':    fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:110, col:'255,240,150' });
+                      fx.push({ ty:'ring', x:m.x, y:m.y, t:-4, max:110, col:'255,255,255' }); break;
+    case 'blasttrap': fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:100, col:'255,150,60' });
+                      fx.push({ ty:'poof', x:m.x, y:m.y, t:0 }); break;
+    case 'falcon':    fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:38, col:'180,220,150' });
+                      fx.push({ ty:'rain', x:m.x, y:m.y, t:0 }); break;
+    case 'camo':      fx.push({ ty:'poof', x:m.x, y:m.y, t:0 });
+                      fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:50, col:'100,160,100' }); break;
+    case 'soulstrike': fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:36, col:'150,200,255' });
+                      fx.push({ ty:'ring', x:m.x, y:m.y, t:-3, max:36, col:'220,240,255' }); break;
+    case 'quagmire':  fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:130, col:'140,160,60' }); break;
+    case 'lifepsy':   fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:60, col:'120,255,180' });
+                      fx.push({ ty:'ring', x:m.x, y:m.y, t:-5, max:60, col:'200,255,220' }); break;
+    case 'huuma':     fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:100, col:'200,120,255' });
+                      fx.push({ ty:'poof', x:m.x, y:m.y, t:0 }); break;
+    case 'kage':      fx.push({ ty:'poof', x:m.x, y:m.y, t:0 });
+                      for (let k = 0; k < 3; k++) fx.push({ ty:'ring', x:m.x + k*10-10, y:m.y, t:-k*3, max:26, col:'120,80,200' }); break;
+    case 'smoke':     fx.push({ ty:'poof', x:m.x, y:m.y, t:0 });
+                      fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:70, col:'120,120,130' }); break;
+    case 'acid':      fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:42, col:'170,255,60' }); break;
+    case 'sphere':    fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:120, col:'255,190,80' });
+                      fx.push({ ty:'poof', x:m.x, y:m.y, t:0 }); break;
+    case 'prain':     fx.push({ ty:'rain', x:m.x, y:m.y, t:0 });
+                      fx.push({ ty:'ring', x:m.x, y:m.y, t:0, max:140, col:'255,120,140' }); break;
   }
 }
 
@@ -605,6 +651,7 @@ window.addEventListener('keydown', e => {
     return;
   }
   if (e.key === 'Enter') { chatOpen = true; chatin.style.display = 'block'; setTimeout(() => chatin.focus(), 0); e.preventDefault(); return; }
+  if (jobChoice && (e.key === '1' || e.key === '2')) { ws.send(JSON.stringify({ t:'jobsel', n: +e.key })); return; }
   if (['1','2','3','4','5','6','7'].includes(e.key) && me && !me.dead) { ws.send(JSON.stringify({ t:'skill', n: +e.key })); return; }
   if (e.key === 'Tab') { e.preventDefault(); toggleRank(); return; }
   if ((e.key === 'b' || e.key === 'B') && me) { toggleShop(); return; }
@@ -922,6 +969,57 @@ function drawMob(mo, animT) {
     cx.fillStyle = 'rgba(0,0,0,.7)'; cx.fillText('💀 NECROLORD [MVP]', x + 1, y - 63);
     cx.fillStyle = '#a0ff60'; cx.fillText('💀 NECROLORD [MVP]', x, y - 64);
     drawBar(x - 40, y - 60, 80, 5, t.hp / t.mh, '#80d050');
+  } else if (t.ty === 'demon') {
+    cx.fillStyle = '#a03028';
+    cx.fillRect(x - 6, y - 26, 12, 10);                                 // head
+    cx.fillRect(x - 8, y - 16, 16, 10);                                 // body
+    cx.fillStyle = '#701e18';
+    cx.fillRect(x - 8, y - 30, 3, 5); cx.fillRect(x + 5, y - 30, 3, 5); // horns
+    cx.fillRect(x - 8, y - 6, 5, 6); cx.fillRect(x + 3, y - 6, 5, 6);   // legs
+    cx.fillRect(x - 14, y - 15, 6, 4); cx.fillRect(x + 8, y - 15, 6, 4);// wings stubs
+    cx.fillStyle = '#ffe040'; cx.fillRect(x - 3, y - 23, 2, 2); cx.fillRect(x + 1, y - 23, 2, 2);
+  } else if (t.ty === 'cherub') {
+    cx.fillStyle = 'rgba(255,255,220,.25)';
+    cx.beginPath(); cx.arc(x, y - 16, 18, 0, 7); cx.fill();             // halo glow
+    cx.fillStyle = '#e8e0c8';
+    cx.fillRect(x - 5, y - 25, 10, 9);                                  // head
+    cx.fillRect(x - 7, y - 16, 14, 10);                                 // robe
+    cx.fillStyle = '#fff';
+    cx.fillRect(x - 15, y - 18, 8, 5); cx.fillRect(x + 7, y - 18, 8, 5);// wings
+    cx.fillStyle = '#ffd76a'; cx.fillRect(x - 5, y - 29, 10, 2);        // halo
+    cx.fillStyle = '#4a4458'; cx.fillRect(x - 3, y - 22, 2, 2); cx.fillRect(x + 1, y - 22, 2, 2);
+  } else if (t.ty === 'inferno' || t.ty === 'seraphim' || t.ty === 'chronos') {
+    // THE THREE GODS of the 100-floor tower
+    const pulse = 3 * Math.sin(animT / 7);
+    const theme = t.ty === 'inferno' ? { glow: 'rgba(255,60,20,.2)', body: '#8a2015', trim: '#ff7030', eye: '#ffe040', label: '🔥 INFERNO [GOD]', lc: '#ff5030' }
+               : t.ty === 'seraphim' ? { glow: 'rgba(255,255,200,.22)', body: '#d8d4c0', trim: '#ffd76a', eye: '#66d9ff', label: '👼 SERAPHIM [GOD]', lc: '#ffe9a8' }
+               : { glow: 'rgba(180,100,255,.22)', body: '#4a2a6a', trim: '#c9a2ff', eye: '#ff5ae0', label: '⏳ CHRONOS [GOD]', lc: '#ff5ae0' };
+    cx.fillStyle = theme.glow;
+    cx.beginPath(); cx.arc(x, y - 20, 52 + pulse, 0, 7); cx.fill();
+    for (let k = 0; k < 10; k++) {
+      const a = k / 10 * 6.28 + animT / 22;
+      cx.fillStyle = theme.glow.replace('.2', '.5');
+      cx.fillRect(x + Math.cos(a) * 46 - 2, y - 20 + Math.sin(a) * 46 - 2, 4, 4);
+    }
+    cx.fillStyle = theme.body;
+    cx.fillRect(x - 34, y - 32, 60, 26);                                // massive body
+    cx.fillRect(x + 18, y - 50, 24, 22);                                // head
+    cx.fillStyle = theme.trim;
+    cx.fillRect(x + 14, y - 56, 32, 6);                                 // crown
+    cx.fillRect(x - 34, y - 10, 8, 8); cx.fillRect(x - 16, y - 10, 8, 8);
+    cx.fillRect(x + 2, y - 10, 8, 8); cx.fillRect(x + 20, y - 10, 8, 8);// legs
+    cx.fillRect(x - 46, y - 30, 12, 7);                                 // tail/cape
+    if (t.ty === 'seraphim') {                                          // wings
+      cx.fillStyle = '#fff';
+      cx.fillRect(x - 50, y - 44, 18, 8); cx.fillRect(x - 44, y - 36, 12, 6);
+    }
+    cx.fillStyle = theme.eye; cx.fillRect(x + 26, y - 44, 5, 5);
+    cx.font = 'bold 12px Courier New'; cx.textAlign = 'center';
+    cx.fillStyle = 'rgba(0,0,0,.7)'; cx.fillText(theme.label, x + 1, y - 65);
+    cx.fillStyle = theme.lc; cx.fillText(theme.label, x, y - 66);
+    cx.font = '9px Courier New'; cx.fillStyle = '#ff9a9a';
+    cx.fillText('PARTY OF 3+ REQUIRED', x, y - 78);
+    drawBar(x - 45, y - 62, 90, 5, t.hp / t.mh, theme.lc);
   } else if (t.ty === 'wolf') {
     cx.fillStyle = '#6b7280';
     cx.fillRect(x - 13, y - 12, 22, 9);                                  // body
@@ -935,7 +1033,7 @@ function drawMob(mo, animT) {
     cx.fillRect(x + 12, y - 15, 2, 2);                                   // eye
   }
   // hp bar + name if hurt or targeting (boss has its own big bar)
-  if (t.ty !== 'direking' && t.ty !== 'solaris' && t.ty !== 'necrolord' && (t.hp < t.mh || t.tg)) {
+  if (!['direking','solaris','necrolord','inferno','seraphim','chronos'].includes(t.ty) && (t.hp < t.mh || t.tg)) {
     drawBar(x - 12, y - 26, 24, 3, t.hp / t.mh, t.tg ? '#ff5050' : '#7ee06a');
   }
 }
@@ -953,6 +1051,8 @@ function tileColor(c, tx, ty) {
     case 'f': return '#4a8f3c';
     case 'c': return v < 2 ? '#3a3346' : '#413a50';
     case 'g': return v < 2 ? '#2e3830' : '#343e36';
+    case 'h': return v < 2 ? '#5a1e14' : v < 4 ? '#6a2a1a' : '#7a3020';   // HELL lava rock
+    case 'v': return v < 2 ? '#c8d0e2' : v < 4 ? '#d4dcec' : '#bfc8dc';   // HEAVEN clouds
   }
   return '#4a8f3c';
 }
@@ -1113,7 +1213,7 @@ function drawHud() {
 
   cx.textAlign = 'left'; cx.font = 'bold 12px Courier New';
   cx.fillStyle = '#ffd76a';
-  const clsTitle = me.adv ? ADV_NAMES[me.c] : me.c;
+  const clsTitle = me.adv ? ADV_PATHS_C[me.c][me.adv - 1] : me.c;
   cx.fillText((me.adv ? '★' : '') + me.n + ' Lv' + me.lv + (compact ? '' : '  (' + clsTitle.toUpperCase() + ')'), 12, H - 13);
 
   if (compact) {
@@ -1142,6 +1242,7 @@ function drawHud() {
 
   drawSkillBar();
   drawRankPanel();
+  drawJobChoice();
   drawShopPanel();
   drawCardBook();
   drawEquipPanel();
@@ -1190,6 +1291,43 @@ function toggleRank() {
   if (showRank && ws && ws.readyState === 1) ws.send(JSON.stringify({ t:'rank' }));
 }
 
+// ---- JOB ADVANCEMENT choice panel (Lv30) ----
+const JOB_DESC = {
+  Knight: 'Heavy melee power', Paladin: 'Holy tank + party healer',
+  Sniper: 'Deadly single shots', Ranger: 'Traps, falcon & stealth',
+  Wizard: 'Raw destruction magic', Sage: 'Spirit magic + self heal',
+  Assassin: 'Burst combo killer', Ninja: 'Shurikens & smoke tricks',
+  Tycoon: 'Zeny-powered cannon', Alchemist: 'Acid + party potions'
+};
+function drawJobChoice() {
+  jobRects = [];
+  if (!jobChoice || !me) return;
+  const w = Math.min(430, cv.width - 16), x0 = (cv.width - w) / 2, y0 = Math.max(40, cv.height / 2 - 130), h = 210;
+  cx.fillStyle = 'rgba(12,8,22,.96)'; cx.fillRect(x0, y0, w, h);
+  cx.strokeStyle = '#ffd76a'; cx.lineWidth = 2; cx.strokeRect(x0, y0, w, h);
+  cx.textAlign = 'center';
+  cx.font = 'bold 15px Courier New'; cx.fillStyle = '#ffd76a';
+  cx.fillText('⭐ JOB ADVANCEMENT ⭐', cv.width / 2, y0 + 26);
+  cx.font = '11px Courier New'; cx.fillStyle = '#e8e4f5';
+  cx.fillText('You have reached Lv30! Choose your path forever:', cv.width / 2, y0 + 46);
+  const bw = (w - 42) / 2, bh = 110, by = y0 + 62;
+  jobChoice.forEach((nm, i) => {
+    const bx = x0 + 14 + i * (bw + 14);
+    cx.fillStyle = i === 0 ? 'rgba(60,80,140,.5)' : 'rgba(130,60,140,.5)';
+    cx.fillRect(bx, by, bw, bh);
+    cx.strokeStyle = i === 0 ? '#8fd8ff' : '#e0a0ff'; cx.strokeRect(bx + .5, by + .5, bw - 1, bh - 1);
+    cx.font = 'bold 14px Courier New'; cx.fillStyle = '#fff';
+    cx.fillText('[' + (i + 1) + '] ' + nm, bx + bw / 2, by + 34);
+    cx.font = '10px Courier New'; cx.fillStyle = '#cfc4e8';
+    cx.fillText(JOB_DESC[nm] || '', bx + bw / 2, by + 56);
+    cx.font = 'bold 11px Courier New'; cx.fillStyle = '#ffd76a';
+    cx.fillText('TAP TO CHOOSE', bx + bw / 2, by + 88);
+    jobRects.push({ x: bx, y: by, w: bw, h: bh, n: i + 1 });
+  });
+  cx.font = '10px Courier New'; cx.fillStyle = '#6a6080';
+  cx.fillText('(or press key 1 / 2)', cv.width / 2, y0 + h - 12);
+}
+
 function drawRankPanel() {
   if (!showRank) return;
   const w = Math.min(460, cv.width - 12), x0 = (cv.width - w) / 2, y0 = 60;
@@ -1211,7 +1349,8 @@ function drawRankPanel() {
     if (y > y0 + h - 20) break;
     cx.fillStyle = p.id === myId ? '#ffd76a' : '#e8e4f5';
     const hpPct = Math.round(p.hp / p.mh * 100);
-    cx.fillText((p.id === myId ? '> ' : '  ') + p.n.padEnd(13) + ' Lv' + String(p.lv).padEnd(4) + p.c.padEnd(11) + 'HP ' + hpPct + '%' + (p.dead ? '  (dead)' : ''), x0 + 18, y);
+    const title = p.adv ? (ADV_PATHS_C[p.c] ? ADV_PATHS_C[p.c][p.adv - 1] : p.c) : p.c;
+    cx.fillText((p.id === myId ? '> ' : '  ') + p.n.padEnd(13) + ' Lv' + String(p.lv).padEnd(4) + title.padEnd(11) + 'HP ' + hpPct + '%' + (p.pt ? ' ⚑' + p.pt : '') + (p.dead ? ' (dead)' : ''), x0 + 18, y);
     y += 16;
   }
   y += 10;
@@ -1345,10 +1484,19 @@ function drawCardBook() {
 }
 
 cv.addEventListener('pointerdown', e => {
-  if (!me || (!showShop && !showCards && !showEquip && !showStats)) return;
+  if (!me || (!showShop && !showCards && !showEquip && !showStats && !jobChoice)) return;
   const r = cv.getBoundingClientRect();
   const px = (e.clientX - r.left) * (cv.width / r.width);
   const py = (e.clientY - r.top) * (cv.height / r.height);
+  if (jobChoice) {
+    for (const rc of jobRects) {
+      if (px >= rc.x && px <= rc.x + rc.w && py >= rc.y && py <= rc.y + rc.h) {
+        ws.send(JSON.stringify({ t: 'jobsel', n: rc.n }));
+        return;
+      }
+    }
+    return;
+  }
   if (showEquip) {
     for (const rc of equipRects) {
       if (px >= rc.x && px <= rc.x + rc.w && py >= rc.y && py <= rc.y + rc.h) {
@@ -1588,7 +1736,7 @@ function frame() {
   for (const id in mobs) ents.push({ y: mobs[id].cur.y, draw: () => drawMob(mobs[id], tick) });
   for (const id in others) {
     const o = others[id]; const t = o.tgt; if (!t) continue;
-    ents.push({ y: o.cur.y, draw: () => { drawChar(o.cur.x, o.cur.y, t.c, t.d, t.mv, o.anim, (t.adv ? '★' : '') + t.n, t.hp, t.mh, t.lv, false, t.dead, t.b, t.au); drawBubble(id, o.cur.x, o.cur.y); } });
+    ents.push({ y: o.cur.y, draw: () => { drawChar(o.cur.x, o.cur.y, t.c, t.d, t.mv, o.anim, (t.pt ? '⚑' : '') + (t.adv ? '★' : '') + t.n, t.hp, t.mh, t.lv, false, t.dead, t.b, t.au); drawBubble(id, o.cur.x, o.cur.y); } });
   }
   ents.push({ y: me.y, draw: () => { drawChar(me.x, me.y, me.c, me.dir, me.moving, tick, (me.adv ? '★' : '') + me.n, me.hp, me.mh, me.lv, true, me.dead, me.b, me.au); drawBubble(myId, me.x, me.y); } });
   // trees drawn on top of ground but below entities standing lower — draw canopy after entities for simple depth

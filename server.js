@@ -80,6 +80,12 @@ MAP.push('s'.repeat(52).split(''));
 // tombstones
 [[8,58],[16,61],[24,59],[32,63],[40,60],[12,64],[36,57],[44,64],[20,57],
  [10,68],[22,70],[34,67],[42,71],[6,71],[28,69],[46,68],[16,72],[38,72]].forEach(([x,y]) => { if (MAP[y] && MAP[y][x] === 'g') MAP[y][x] = 's'; });
+// ---- 100F HELL & HEAVEN tower (gate at the south end of the graveyard) ----
+MAP[MAP.length - 1][24] = 'c'; MAP[MAP.length - 1][25] = 'c';   // tower gate through the wall
+MAP.push(('s'.repeat(24) + 'cc' + 's'.repeat(26)).split(''));    // entrance hall
+for (let i = 0; i < 7; i++) MAP.push(('s' + 'h'.repeat(50) + 's').split(''));  // HELL floors (1-50)
+for (let i = 0; i < 7; i++) MAP.push(('s' + 'v'.repeat(50) + 's').split(''));  // HEAVEN floors (51-100)
+MAP.push('s'.repeat(52).split(''));
 const MAP_H = MAP.length;
 const BLOCKED = new Set(['t','w','s']);
 
@@ -117,9 +123,9 @@ const TIER_NAMES = {
 };
 const KIND_NAMES = { w: 'Weapon', a: 'Armor', s: 'Shield', x: 'Accessory', h: 'Headgear', b: 'Shoes' };
 const EQUIP_SLOTS = ['w', 'a', 's', 'h', 'b', 'x1', 'x2'];
-// rarity: 0 Normal, 1 Rare (+25%), 2 Epic (+50%), 3 Legendary (+100%, MVP only)
-const RARITY_NAMES = ['', 'Rare ', 'Epic ', 'Legendary '];
-const RARITY_MULT = [1, 1.25, 1.5, 2];
+// rarity: 0 Normal, 1 Rare, 2 Epic, 3 Legendary (MVP only), 4 MULTIVERSE (HELL & HEAVEN gods only, x3 stats)
+const RARITY_NAMES = ['', 'Rare ', 'Epic ', 'Legendary ', 'MULTIVERSE '];
+const RARITY_MULT = [1, 1.25, 1.5, 2, 3];
 const INV_MAX = 24;
 function newItem(kind, tier, rarity) { return { id: Math.random().toString(36).slice(2, 9), k: kind, t: tier, p: 0, c: null, cs: 0, r: rarity || 0 }; }
 function itemName(it) { return RARITY_NAMES[it.r || 0] + TIER_NAMES[it.k][it.t] + ' ' + KIND_NAMES[it.k] + (it.p ? ' +' + it.p : ''); }
@@ -137,7 +143,7 @@ function cardStarChance(stars) { return Math.pow(0.85, stars); }
 function starMult(cs) { return 1 + 0.15 * Math.max(0, (cs || 1) - 1); }
 // stat effects per point: STR +1 atk | VIT +8 HP, +0.2 regen | AGI +0.5% aspd, +0.2% dodge | DEX +0.4% crit | INT +0.8% damage
 const STAT_KEYS = ['str', 'vit', 'agi', 'dex', 'int'];
-const MAX_PLUS = 10;
+const MAX_PLUS = 15;
 
 // ---------------- CARDS (RO-style monster card drops) ----------------
 // w = effect when slotted in weapon, a = effect when slotted in armor
@@ -154,7 +160,18 @@ const CARDS = {
   solaris:   { name: 'SOLARIS CARD',    w: { solar: 0.15 },  a: { hp: 200, regen: 5, spd: 0.05 }, drop: 0.12 },
   zombie:    { name: 'Zombie Card',     w: { dmg: 0.18 },    a: { hp: 150, dr: 0.05 },   drop: 0.012 },
   plague:    { name: 'Plaguebearer Card', w: { ls: 0.12 },   a: { regen: 8 },            drop: 0.01  },
-  necrolord: { name: 'NECROLORD CARD',  w: { dmg: 0.25, ls: 0.10 }, a: { hp: 300, dr: 0.10 }, drop: 0.12 }
+  necrolord: { name: 'NECROLORD CARD',  w: { dmg: 0.25, ls: 0.10 }, a: { hp: 300, dr: 0.10 }, drop: 0.12 },
+  demon:     { name: 'Demon Card',      w: { dmg: 0.20, pvp: 0.10 }, a: { hp: 200 },          drop: 0.01 },
+  cherub:    { name: 'Cherub Card',     w: { aspd: 0.15 },   a: { regen: 12, hp: 150 },       drop: 0.01 },
+  inferno:   { name: 'INFERNO CARD',    w: { meteor: 0.20, dmg: 0.20 }, a: { aura: 25 },      drop: 0.08 },
+  seraphim:  { name: 'SERAPHIM CARD',   w: { ls: 0.15, dmg: 0.15 }, a: { hp: 500, regen: 15, dr: 0.05 }, drop: 0.08 },
+  chronos:   { name: 'CHRONOS CARD',    w: { dmg: 0.40, solar: 0.10 }, a: { hp: 400, dr: 0.12, spd: 0.08 }, drop: 0.08 },
+  // HERO CARDS: dropped by players in PvP (15% on kill), effect depends on the fallen hero's class
+  hero_swordsman: { name: 'HERO CARD · Swordsman', w: { atk: 15, dmg: 0.05 }, a: { hp: 150, dr: 0.03 } },
+  hero_archer:    { name: 'HERO CARD · Archer',    w: { aspd: 0.12, crit: 0.05 }, a: { dodge: 0.08 } },
+  hero_mage:      { name: 'HERO CARD · Mage',      w: { dmg: 0.15 },        a: { regen: 6 } },
+  hero_thief:     { name: 'HERO CARD · Thief',     w: { crit: 0.10 },       a: { spd: 0.10, dodge: 0.05 } },
+  hero_merchant:  { name: 'HERO CARD · Merchant',  w: { atk: 10 },          a: { hp: 100, zeny: 0.15 } }
 };
 function cardEff(p, side, key) {
   // weapon/accessory sockets use card w-effects; armor/shield/head/shoes use a-effects; ★ stars amplify
@@ -215,54 +232,117 @@ function recalcStats(p) {
   p.hp = Math.max(1, Math.round(p.maxHp * ratio));
 }
 // skill defs: unlock level, cooldown ms, behavior handled in useSkill()
-const ADV_NAMES = { swordsman: 'Knight', archer: 'Sniper', mage: 'Wizard', thief: 'Assassin', merchant: 'Tycoon' };
-const SKILLS = {
+// v10: at Lv30 every class CHOOSES one of two job paths - each path has its own 3 advanced skills
+const ADV_PATHS = {
+  swordsman: ['Knight', 'Paladin'],
+  archer:    ['Sniper', 'Ranger'],
+  mage:      ['Wizard', 'Sage'],
+  thief:     ['Assassin', 'Ninja'],
+  merchant:  ['Tycoon', 'Alchemist']
+};
+const ADV_NAMES = { swordsman: 'Knight', archer: 'Sniper', mage: 'Wizard', thief: 'Assassin', merchant: 'Tycoon' }; // legacy
+const BASE_SKILLS = {
   swordsman: [
     { key: 'bash',      name: 'Bash',         lvl: 3,  cd: 4000 },
     { key: 'whirl',     name: 'Whirlwind',    lvl: 6,  cd: 8000 },
-    { key: 'warcry',    name: 'War Cry',      lvl: 10, cd: 20000 },
-    { key: 'bbash',     name: 'Bowling Bash', lvl: 30, cd: 8000 },
-    { key: 'quicken',   name: 'Quicken',      lvl: 35, cd: 20000 },
-    { key: 'lordaura',  name: 'Lord Strike',  lvl: 40, cd: 15000 },
-    { key: 'ragnarok',  name: 'RAGNAROK',     lvl: 99, cd: 30000 }
+    { key: 'warcry',    name: 'War Cry',      lvl: 10, cd: 20000 }
   ],
   archer: [
     { key: 'dstrafe',   name: 'Double Strafe', lvl: 3,  cd: 4000 },
     { key: 'arrowrain', name: 'Arrow Rain',    lvl: 6,  cd: 9000 },
-    { key: 'snipe',     name: 'Snipe',         lvl: 10, cd: 15000 },
-    { key: 'focus',     name: 'Focused Arrow', lvl: 30, cd: 10000 },
-    { key: 'astorm',    name: 'Arrow Storm',   lvl: 35, cd: 12000 },
-    { key: 'truesight', name: 'True Sight',    lvl: 40, cd: 25000 },
-    { key: 'arrowgod',  name: 'Arrow of Gods', lvl: 99, cd: 30000 }
+    { key: 'snipe',     name: 'Snipe',         lvl: 10, cd: 15000 }
   ],
   mage: [
     { key: 'firebolt',  name: 'Firebolt',     lvl: 3,  cd: 4000 },
     { key: 'frostnova', name: 'Frost Nova',   lvl: 6,  cd: 10000 },
-    { key: 'meteor',    name: 'Meteor',       lvl: 10, cd: 18000 },
-    { key: 'jupitel',   name: 'Jupitel',      lvl: 30, cd: 8000 },
-    { key: 'stormgust', name: 'Storm Gust',   lvl: 35, cd: 14000 },
-    { key: 'inferno',   name: 'Hell Inferno', lvl: 40, cd: 16000 },
-    { key: 'meteorstorm', name: 'Meteor Storm', lvl: 99, cd: 30000 }
+    { key: 'meteor',    name: 'Meteor',       lvl: 10, cd: 18000 }
   ],
   thief: [
     { key: 'dbl',       name: 'Double Attack', lvl: 3,  cd: 4000 },
     { key: 'backstab',  name: 'Backstab',      lvl: 6,  cd: 8000 },
-    { key: 'shadow',    name: 'Shadow Dash',   lvl: 10, cd: 12000 },
-    { key: 'sonic',     name: 'Sonic Blow',    lvl: 30, cd: 10000 },
-    { key: 'venom',     name: 'Venom Edge',    lvl: 35, cd: 12000 },
-    { key: 'crossimpact', name: 'Cross Impact', lvl: 40, cd: 15000 },
-    { key: 'deathdance', name: 'Death Dance',  lvl: 99, cd: 30000 }
+    { key: 'shadow',    name: 'Shadow Dash',   lvl: 10, cd: 12000 }
   ],
   merchant: [
     { key: 'mammonite', name: 'Mammonite',    lvl: 3,  cd: 5000 },
     { key: 'cointoss',  name: 'Coin Toss',    lvl: 6,  cd: 8000 },
-    { key: 'greed',     name: 'Greed Aura',   lvl: 10, cd: 20000 },
-    { key: 'cartterm',  name: 'Cart Cannon',  lvl: 30, cd: 10000 },
-    { key: 'goldrush',  name: 'Gold Rush',    lvl: 35, cd: 25000 },
-    { key: 'meltdown',  name: 'Meltdown',     lvl: 40, cd: 14000 },
-    { key: 'midas',     name: 'Midas Wrath',  lvl: 99, cd: 30000 }
+    { key: 'greed',     name: 'Greed Aura',   lvl: 10, cd: 20000 }
   ]
 };
+const PATH_SKILLS = {
+  swordsman: [
+    [ // Knight
+      { key: 'bbash',     name: 'Bowling Bash', lvl: 30, cd: 8000 },
+      { key: 'quicken',   name: 'Quicken',      lvl: 35, cd: 20000 },
+      { key: 'lordaura',  name: 'Lord Strike',  lvl: 40, cd: 15000 }
+    ],
+    [ // Paladin
+      { key: 'shieldboom', name: 'Shield Boomerang', lvl: 30, cd: 8000 },
+      { key: 'sanctuary',  name: 'Sanctuary',        lvl: 35, cd: 18000 },
+      { key: 'gcross',     name: 'Grand Cross',      lvl: 40, cd: 15000 }
+    ]
+  ],
+  archer: [
+    [ // Sniper
+      { key: 'focus',     name: 'Focused Arrow', lvl: 30, cd: 10000 },
+      { key: 'astorm',    name: 'Arrow Storm',   lvl: 35, cd: 12000 },
+      { key: 'truesight', name: 'True Sight',    lvl: 40, cd: 25000 }
+    ],
+    [ // Ranger
+      { key: 'blasttrap', name: 'Blast Trap',     lvl: 30, cd: 9000 },
+      { key: 'falcon',    name: 'Falcon Assault', lvl: 35, cd: 13000 },
+      { key: 'camo',      name: 'Camouflage',     lvl: 40, cd: 25000 }
+    ]
+  ],
+  mage: [
+    [ // Wizard
+      { key: 'jupitel',   name: 'Jupitel',      lvl: 30, cd: 8000 },
+      { key: 'stormgust', name: 'Storm Gust',   lvl: 35, cd: 14000 },
+      { key: 'inferno',   name: 'Hell Inferno', lvl: 40, cd: 16000 }
+    ],
+    [ // Sage
+      { key: 'soulstrike', name: 'Soul Strike',  lvl: 30, cd: 8000 },
+      { key: 'quagmire',   name: 'Quagmire',     lvl: 35, cd: 12000 },
+      { key: 'lifepsy',    name: 'Life Psychic', lvl: 40, cd: 20000 }
+    ]
+  ],
+  thief: [
+    [ // Assassin
+      { key: 'sonic',     name: 'Sonic Blow',    lvl: 30, cd: 10000 },
+      { key: 'venom',     name: 'Venom Edge',    lvl: 35, cd: 12000 },
+      { key: 'crossimpact', name: 'Cross Impact', lvl: 40, cd: 15000 }
+    ],
+    [ // Ninja
+      { key: 'huuma',     name: 'Huuma Shuriken', lvl: 30, cd: 9000 },
+      { key: 'kage',      name: 'Shadow Clone',   lvl: 35, cd: 12000 },
+      { key: 'smoke',     name: 'Smoke Bomb',     lvl: 40, cd: 25000 }
+    ]
+  ],
+  merchant: [
+    [ // Tycoon
+      { key: 'cartterm',  name: 'Cart Cannon',  lvl: 30, cd: 10000 },
+      { key: 'goldrush',  name: 'Gold Rush',    lvl: 35, cd: 25000 },
+      { key: 'meltdown',  name: 'Meltdown',     lvl: 40, cd: 14000 }
+    ],
+    [ // Alchemist
+      { key: 'acid',      name: 'Acid Terror',  lvl: 30, cd: 9000 },
+      { key: 'sphere',    name: 'Alchemy Blast', lvl: 35, cd: 12000 },
+      { key: 'prain',     name: 'Potion Rain',  lvl: 40, cd: 18000 }
+    ]
+  ]
+};
+const ULT_SKILLS = {
+  swordsman: { key: 'ragnarok',  name: 'RAGNAROK',     lvl: 99, cd: 30000 },
+  archer:    { key: 'arrowgod',  name: 'Arrow of Gods', lvl: 99, cd: 30000 },
+  mage:      { key: 'meteorstorm', name: 'Meteor Storm', lvl: 99, cd: 30000 },
+  thief:     { key: 'deathdance', name: 'Death Dance',  lvl: 99, cd: 30000 },
+  merchant:  { key: 'midas',     name: 'Midas Wrath',  lvl: 99, cd: 30000 }
+};
+function skillsFor(p) {
+  return BASE_SKILLS[p.cls].concat(PATH_SKILLS[p.cls][(p.adv || 1) - 1], [ULT_SKILLS[p.cls]]);
+}
+function skillsMsg(p) {
+  return skillsFor(p).map(s => ({ key: s.key, name: s.name, lvl: s.lvl, cd: s.cd }));
+}
 
 // ---------------- MONSTERS (v2: harder + aggressive) ----------------
 const MONSTER_TYPES = {
@@ -278,7 +358,13 @@ const MONSTER_TYPES = {
   solaris:   { name: 'SOLARIS the Sun Tyrant', hp: 200000, atk: 300, xp: 50000, zeny: 50000, speed: 2.0, aggro: 340, lvl: 80, boss: true, mvp: true, armor: 0.5, enrageAt: 0.5 },
   zombie:    { name: 'Zombie',      hp: 2500, atk: 90,  xp: 2000,  zeny: 900,  speed: 0.9, aggro: 260, lvl: 38 },
   plague:    { name: 'Plaguebearer', hp: 4200, atk: 115, xp: 3500, zeny: 1500, speed: 1.1, aggro: 280, lvl: 46 },
-  necrolord: { name: 'NECROLORD the Grave King', hp: 120000, atk: 260, xp: 35000, zeny: 35000, speed: 1.6, aggro: 340, lvl: 85, boss: true, mvp: true, armor: 0.45, enrageAt: 0.45 }
+  necrolord: { name: 'NECROLORD the Grave King', hp: 120000, atk: 260, xp: 35000, zeny: 35000, speed: 1.6, aggro: 340, lvl: 85, boss: true, mvp: true, armor: 0.45, enrageAt: 0.45 },
+  // ---- 100F HELL & HEAVEN tower ----
+  demon:     { name: 'Hell Demon',   hp: 9000,  atk: 170, xp: 6000,  zeny: 2500, speed: 1.4, aggro: 300, lvl: 60 },
+  cherub:    { name: 'Fallen Cherub', hp: 12000, atk: 190, xp: 8000, zeny: 3200, speed: 1.6, aggro: 300, lvl: 68 },
+  inferno:   { name: 'INFERNO, Lord of Hell',    hp: 500000, atk: 400, xp: 120000, zeny: 120000, speed: 1.8, aggro: 360, lvl: 99, boss: true, mvp: true, superMvp: true, armor: 0.5, enrageAt: 0.5 },
+  seraphim:  { name: 'SERAPHIM, the Divine Judge', hp: 500000, atk: 380, xp: 120000, zeny: 120000, speed: 1.7, aggro: 360, lvl: 99, boss: true, mvp: true, superMvp: true, armor: 0.55, enrageAt: 0.4 },
+  chronos:   { name: 'CHRONOS, God of the 100 Floors', hp: 800000, atk: 450, xp: 250000, zeny: 250000, speed: 1.9, aggro: 380, lvl: 99, boss: true, mvp: true, superMvp: true, armor: 0.6, enrageAt: 0.5 }
 };
 // monster skills: fired while chasing a target, on a cooldown ("fx" reuses client skill visuals)
 const MOB_SKILLS = {
@@ -292,8 +378,10 @@ const MOB_SKILLS = {
   siren:     { cd: 8000,  fx: 'frostnova' },  // siren song: AoE scream
   direking:  { cd: 12000, fx: 'bbash' },      // dire roar: heavy AoE
   zombie:    { cd: 8000,  fx: 'venom' },      // infected bite: damage + self heal
-  plague:    { cd: 9000,  fx: 'frostnova' }   // plague cloud: AoE sickness
-  // solaris has its own rotation below
+  plague:    { cd: 9000,  fx: 'frostnova' },  // plague cloud: AoE sickness
+  demon:     { cd: 7000,  fx: 'firebolt' },   // hellfire bolt: ranged burn
+  cherub:    { cd: 8000,  fx: 'jupitel' }     // divine spark: ranged smite + self heal
+  // MVPs have their own rotation below
 };
 const SPAWN_ZONES = [
   ['jelly',     8, 20, 2,  48, 10],
@@ -309,7 +397,12 @@ const SPAWN_ZONES = [
   ['solaris',   1, 28, 48, 37, 54],
   ['zombie',   10, 2,  57, 48, 72],
   ['plague',    5, 20, 57, 48, 72],
-  ['necrolord', 1, 30, 64, 46, 71]
+  ['necrolord', 1, 30, 64, 46, 71],
+  ['demon',     7, 2,  75, 48, 81],
+  ['inferno',   1, 4,  76, 20, 80],
+  ['cherub',    7, 2,  82, 48, 88],
+  ['seraphim',  1, 32, 83, 46, 87],
+  ['chronos',   1, 18, 84, 32, 88]
 ];
 
 let nextMonsterId = 1;
@@ -443,6 +536,7 @@ function makePlayer(ws, name, cls, pinHash, restore) {
     adv: restore ? (restore.adv || 0) : 0,
     home: restore ? (restore.home || null) : null,
     pk: restore ? (restore.pk || 0) : 0,
+    party: null,
     lastAtk: 0, lastPot: 0, skillCd: [0, 0, 0, 0, 0, 0, 0], buffUntil: 0, zenyBuffUntil: 0,
     quickenUntil: 0, tsUntil: 0,
     dead: false, respawnAt: 0, lastMoveMsg: Date.now(),
@@ -463,11 +557,9 @@ function grantXp(p, amount) {
     p.level++;
     leveled = true;
     p.sp += 3; // stat points per level
-    // 2nd job advancement at level 30
+    // 2nd job: at Lv30 the player CHOOSES between two paths
     if (p.level >= 30 && !p.adv) {
-      p.adv = 1;
-      broadcast({ t: 'event', kind: 'boss', text: '⭐ ' + p.name + ' has advanced to ' + ADV_NAMES[p.cls].toUpperCase() + '!' });
-      broadcast({ t: 'event', kind: 'levelup', id: p.id, level: p.level });
+      send(p.ws, { t: 'jobchoice', options: ADV_PATHS[p.cls] });
     }
     // LEVEL 99 ASCENSION: lightning + ultimate skill unlocked
     if (p.level === 99) {
@@ -549,6 +641,16 @@ function lifesteal(p, dmg) {
 
 function hitMonster(p, m, dmg) {
   const t = MONSTER_TYPES[m.type];
+  // HELL & HEAVEN gods: immune unless attacked by a party of 3+ heroes standing together
+  if (t.superMvp && partyMembersNear(p, 400).length < 3) {
+    broadcast({ t: 'event', kind: 'hit', from: p.id, target: m.id, dmg: 'IMMUNE', tx: m.x, ty: m.y, cls: p.cls });
+    if (!p.lastGodWarn || Date.now() - p.lastGodWarn > 5000) {
+      p.lastGodWarn = Date.now();
+      sysMsg(p, '⛔ ' + t.name + ' ignores lone mortals! You need a PARTY of 3+ heroes nearby (/party join NAME).');
+    }
+    m.target = p.id;
+    return;
+  }
   if (t.armor) dmg = Math.max(1, Math.floor(dmg * (1 - t.armor)));            // MVP natural armor
   if (Date.now() < (m.shieldUntil || 0)) dmg = Math.max(1, Math.floor(dmg * 0.5)); // crab bubble shell
   m.hp -= dmg;
@@ -593,14 +695,27 @@ function nearestMonster(x, y, maxR) {
 }
 
 // ---------------- HOME (safe zone bought with zeny) ----------------
-const HOME_COST = 10000;
+const HOME_COST = 100000;
 const HOME_R = 64;  // safe radius around own home
 function inHome(p) { return !!(p.home && !p.dead && Math.hypot(p.x - p.home.x, p.y - p.home.y) < HOME_R); }
 
-// ---------------- PVP (players can fight each other everywhere - except at home) ----------------
+// ---------------- PARTY SYSTEM ----------------
+function sameParty(a, b) { return !!(a && b && a.party && a.party === b.party); }
+function partyMembersNear(p, r) {
+  const out = [p];
+  if (!p.party) return out;
+  for (const id in players) {
+    const v = players[id];
+    if (v.id !== p.id && !v.dead && sameParty(v, p) && Math.hypot(v.x - p.x, v.y - p.y) <= r) out.push(v);
+  }
+  return out;
+}
+
+// ---------------- PVP (players can fight each other everywhere - except at home / in party) ----------------
 function pvpTargetable(v, attacker) {
   return v && !v.dead && v.id !== attacker.id && Date.now() >= v.protectUntil
-    && !inHome(v) && !inHome(attacker);   // home = safe zone; also no attacking FROM home
+    && !inHome(v) && !inHome(attacker)    // home = safe zone; also no attacking FROM home
+    && !sameParty(v, attacker);           // party members never hurt each other
 }
 function playersInRange(attacker, x, y, r) {
   const out = [];
@@ -650,6 +765,13 @@ function hitPlayer(a, v, dmg) {
       v.zeny -= stolen; a.zeny += stolen;
       broadcast({ t: 'event', kind: 'boss', text: '💰 ' + a.name + ' looted ' + stolen + 'z from ' + v.name + '!' });
     }
+    // HERO CARD drop: 15% chance the fallen hero drops their class card
+    if (Math.random() < 0.15) {
+      const hc = 'hero_' + v.cls;
+      a.eq.cards[hc] = (a.eq.cards[hc] || 0) + 1;
+      broadcast({ t: 'event', kind: 'carddrop', id: a.id, card: CARDS[hc].name, boss: true, x: Math.round(v.x), y: Math.round(v.y) });
+      broadcast({ t: 'event', kind: 'boss', text: '🃏 ' + v.name + ' dropped a ' + CARDS[hc].name + '!!' });
+    }
     if (v.eq.inv.length > 0 && Math.random() < 0.25 && a.eq.inv.length < INV_MAX) {
       const idx = Math.floor(Math.random() * v.eq.inv.length);
       const it = v.eq.inv.splice(idx, 1)[0];
@@ -683,7 +805,7 @@ function hitAny(a, tgt, dmg) {
 function tgtPos(tgt) { return tgt.m ? tgt.m : tgt.p; }
 
 function useSkill(p, n) {
-  const defs = SKILLS[p.cls];
+  const defs = skillsFor(p);
   if (!defs || n < 0 || n > 6) return;
   const def = defs[n];
   const now = Date.now();
@@ -830,6 +952,88 @@ function useSkill(p, n) {
     used = true;
   } else if (def.key === 'meltdown') {
     used = aoe(p.x, p.y, 110, 3, false);
+  } else if (def.key === 'shieldboom') {
+    // Paladin: hurl your shield
+    const t = nearestAny(p, c.range + 60);
+    if (t) { const o = tgtPos(t); fx.x = Math.round(o.x); fx.y = Math.round(o.y); hitAny(p, t, dmgRoll(p, 4)); used = true; }
+  } else if (def.key === 'sanctuary') {
+    // Paladin: holy ground heals you + party members nearby
+    partyMembersNear(p, 140).forEach(v => {
+      if (v.hp < v.maxHp) { v.hp = Math.min(v.maxHp, v.hp + 250); broadcast({ t: 'event', kind: 'heal', id: v.id, amt: 250, x: Math.round(v.x), y: Math.round(v.y) }); }
+    });
+    used = true;
+  } else if (def.key === 'gcross') {
+    // Paladin: Grand Cross
+    used = aoe(p.x, p.y, 110, 4, false);
+  } else if (def.key === 'blasttrap') {
+    // Ranger: explosive trap under the target
+    const t = nearestAny(p, 280);
+    const o = t ? tgtPos(t) : p;
+    fx.x = Math.round(o.x); fx.y = Math.round(o.y);
+    used = aoe(o.x, o.y, 100, 3, true);
+  } else if (def.key === 'falcon') {
+    // Ranger: falcon dives from extreme range
+    const t = nearestAny(p, 320);
+    if (t) { const o = tgtPos(t); fx.x = Math.round(o.x); fx.y = Math.round(o.y); hitAny(p, t, dmgRoll(p, 7)); used = true; }
+  } else if (def.key === 'camo') {
+    // Ranger: vanish - players can't target you for 5s
+    p.protectUntil = now + 5000;
+    used = true;
+  } else if (def.key === 'soulstrike') {
+    // Sage: barrage of spirit bolts
+    const t = nearestAny(p, 250);
+    if (t) { const o = tgtPos(t); fx.x = Math.round(o.x); fx.y = Math.round(o.y); for (let i = 0; i < 5; i++) hitAny(p, t, dmgRoll(p, 1.2)); used = true; }
+  } else if (def.key === 'quagmire') {
+    // Sage: swamp field - damage + heavy slow
+    const t = nearestAny(p, 280);
+    const o = t ? tgtPos(t) : p;
+    fx.x = Math.round(o.x); fx.y = Math.round(o.y);
+    const ms = monstersInRange(o.x, o.y, 130);
+    const ps = playersInRange(p, o.x, o.y, 130);
+    ms.forEach(mm => { hitMonster(p, mm, dmgRoll(p, 1.5)); mm.slowUntil = now + 6000; });
+    ps.forEach(vv => hitPlayer(p, vv, dmgRoll(p, 1.5)));
+    used = ms.length + ps.length > 0;
+  } else if (def.key === 'lifepsy') {
+    // Sage: psychic self-heal 40% max HP
+    const amt = Math.floor(p.maxHp * 0.4);
+    p.hp = Math.min(p.maxHp, p.hp + amt);
+    broadcast({ t: 'event', kind: 'heal', id: p.id, amt, x: Math.round(p.x), y: Math.round(p.y) });
+    used = true;
+  } else if (def.key === 'huuma') {
+    // Ninja: giant shuriken explodes on the target
+    const t = nearestAny(p, 240);
+    const o = t ? tgtPos(t) : p;
+    fx.x = Math.round(o.x); fx.y = Math.round(o.y);
+    used = aoe(o.x, o.y, 100, 2.5, false);
+  } else if (def.key === 'kage') {
+    // Ninja: shadow clone teleport + flurry
+    const t = nearestAny(p, 300);
+    if (t) {
+      const o = tgtPos(t);
+      for (const [ox, oy] of [[-30,0],[30,0],[0,-30],[0,30],[-24,-24],[24,24]]) {
+        if (!isBlocked(o.x + ox, o.y + oy)) { p.x = o.x + ox; p.y = o.y + oy; break; }
+      }
+      fx.x = Math.round(o.x); fx.y = Math.round(o.y);
+      for (let i = 0; i < 6; i++) hitAny(p, t, dmgRoll(p, 1));
+      used = true;
+    }
+  } else if (def.key === 'smoke') {
+    // Ninja: smoke bomb - untargetable by players for 5s
+    p.protectUntil = now + 5000;
+    used = true;
+  } else if (def.key === 'acid') {
+    // Alchemist: acid terror
+    const t = nearestAny(p, c.range + 40);
+    if (t) { const o = tgtPos(t); fx.x = Math.round(o.x); fx.y = Math.round(o.y); hitAny(p, t, dmgRoll(p, 5.5)); used = true; }
+  } else if (def.key === 'sphere') {
+    // Alchemist: alchemy blast around self
+    used = aoe(p.x, p.y, 120, 3, false);
+  } else if (def.key === 'prain') {
+    // Alchemist: potion rain heals you + party members nearby
+    partyMembersNear(p, 140).forEach(v => {
+      if (v.hp < v.maxHp) { v.hp = Math.min(v.maxHp, v.hp + 250); broadcast({ t: 'event', kind: 'heal', id: v.id, amt: 250, x: Math.round(v.x), y: Math.round(v.y) }); }
+    });
+    used = true;
   } else if (def.key === 'ragnarok') {
     // ULTIMATE: cataclysmic blade storm around the Knight
     used = aoe(p.x, p.y, 150, 12, false);
@@ -909,11 +1113,12 @@ wss.on('connection', (ws) => {
       send(ws, {
         t: 'init', id: me.id, map: MAP.map(r => r.join('')), tile: TILE,
         you: publicPlayer(me),
-        skills: SKILLS[me.cls].map(s => ({ name: s.name, lvl: s.lvl, cd: s.cd })),
+        skills: skillsMsg(me),
         restored: !!restore
       });
       sendSave(me);
       sendInv(me);
+      if (me.level >= 30 && !me.adv) send(ws, { t: 'jobchoice', options: ADV_PATHS[me.cls] });
       broadcast({ t: 'event', kind: 'join', name: me.name, id: me.id });
       console.log(`[join] ${me.name} Lv${me.level} (${me.cls})${restore ? ' [restored]' : ''} - ${Object.keys(players).length} online`);
       return;
@@ -1086,6 +1291,20 @@ wss.on('connection', (ws) => {
       send(ws, { t: 'rank', top, pvp });
       return;
     }
+    if (msg.t === 'jobsel') {
+      const n = Number(msg.n);
+      if (me.level >= 30 && !me.adv && (n === 1 || n === 2)) {
+        me.adv = n;
+        const title = ADV_PATHS[me.cls][n - 1];
+        broadcast({ t: 'event', kind: 'boss', text: '⭐ ' + me.name + ' has advanced to ' + title.toUpperCase() + '!' });
+        broadcast({ t: 'event', kind: 'levelup', id: me.id, level: me.level });
+        recalcStats(me);
+        me.hp = me.maxHp;
+        send(ws, { t: 'skills', skills: skillsMsg(me) });
+        persist(me); sendSave(me);
+      }
+      return;
+    }
     if (msg.t === 'chat') { handleChat(me, msg); return; }
   });
 
@@ -1124,9 +1343,47 @@ function handleChat(p, msg) {
     broadcast({ t: 'event', kind: 'boss', text: '🏠 ' + p.name + (rebuild ? ' moved their home!' : ' built a home! A new safe haven appears...') });
     return;
   }
+  // ---- /party : team up! ----
+  if (text === '/party' || text === '/party help') {
+    sysMsg(p, 'Party: /party create · /party join NAME · /party leave. Members share XP, never hurt each other, and can fight the HELL & HEAVEN gods!');
+    return;
+  }
+  if (text === '/party create') {
+    p.party = p.name.toLowerCase();
+    broadcast({ t: 'event', kind: 'boss', text: '⚑ ' + p.name + ' formed a party! Join with: /party join ' + p.name });
+    return;
+  }
+  if (text === '/party leave') {
+    p.party = null;
+    sysMsg(p, 'You left the party.');
+    return;
+  }
+  if (text.startsWith('/party join ')) {
+    const nm = text.slice(12).trim().toLowerCase();
+    const o = Object.values(players).find(v => v.name.toLowerCase() === nm);
+    if (!o) { sysMsg(p, 'Player "' + nm + '" is not online.'); return; }
+    if (o.id === p.id) { sysMsg(p, 'You cannot join yourself - ask a friend!'); return; }
+    if (!o.party) o.party = o.name.toLowerCase();
+    p.party = o.party;
+    broadcast({ t: 'event', kind: 'boss', text: '⚑ ' + p.name + ' joined ' + o.name + "'s party!" });
+    return;
+  }
   // admin commands (only the admin hero, protected by their PIN)
   if (text.startsWith('/') && p.name.toLowerCase() === ADMIN_NAME) {
     if (text === '/maint') { startMaintenance(); return; }
+    if (text.startsWith('/call')) {
+      const arg = (text.split(' ')[1] || '').toLowerCase();
+      const alias = { gorehorn: 'direking', direking: 'direking', solaris: 'solaris', necrolord: 'necrolord', inferno: 'inferno', seraphim: 'seraphim', chronos: 'chronos' };
+      const ty = alias[arg];
+      if (!ty) { sysMsg(p, 'Usage: /call gorehorn | solaris | necrolord | inferno | seraphim | chronos'); return; }
+      const m = Object.values(monsters).find(mm => mm.type === ty);
+      if (!m) { sysMsg(p, 'That MVP does not exist yet.'); return; }
+      const t = MONSTER_TYPES[ty];
+      m.dead = false; m.hp = t.hp; m.x = p.x + 100; m.y = p.y;
+      m.homeX = m.x; m.homeY = m.y; m.target = null; m.enraged = false; m.slowUntil = 0;
+      broadcast({ t: 'event', kind: 'boss', text: '📢 GM 007 HAS SUMMONED ' + t.name.toUpperCase() + '!! RUN OR FIGHT!!' });
+      return;
+    }
     if (text === '/open') {
       maintenance = false;
       broadcast({ t: 'event', kind: 'boss', text: '✅ Maintenance complete - SERVER IS OPEN! Welcome back!' });
@@ -1140,15 +1397,23 @@ function handleChat(p, msg) {
 function killMonster(m, killer) {
   const t = MONSTER_TYPES[m.type];
   m.dead = true;
-  m.respawnAt = Date.now() + (t.mvp ? 1200000 : t.boss ? 600000 : 8000 + Math.random() * 7000);
+  m.respawnAt = Date.now() + (t.superMvp ? 1800000 : t.mvp ? 1200000 : t.boss ? 600000 : 8000 + Math.random() * 7000);
   let zmult = 1;
   if (killer.cls === 'merchant') zmult *= 1.3;
   if (Date.now() < killer.zenyBuffUntil) zmult *= 2;
+  zmult *= 1 + cardEff(killer, 'a', 'zeny');   // HERO CARD Merchant
   killer.zeny += Math.round((t.zeny + Math.floor(Math.random() * t.zeny * 0.5)) * zmult);
   broadcast({ t: 'event', kind: 'mdeath', id: m.id, x: m.x, y: m.y, killer: killer.id, zeny: t.zeny });
   if (t.boss) broadcast({ t: 'event', kind: 'boss', text: killer.name + ' has slain ' + t.name + '! It will return in 10 minutes...' });
-  // rare equipment drop - significantly reduced rates; Legendary rarity ONLY from MVP
-  const dropCh = t.mvp ? 0.25 : t.boss ? 0.08 : 0.005;
+  // party XP share: members within 500px each gain 40% bonus XP
+  if (killer.party) {
+    for (const pid in players) {
+      const v = players[pid];
+      if (v.id !== killer.id && !v.dead && sameParty(v, killer) && Math.hypot(v.x - m.x, v.y - m.y) <= 500) grantXp(v, Math.round(t.xp * 0.4));
+    }
+  }
+  // rare equipment drop - Legendary ONLY from MVP; MULTIVERSE ONLY from HELL & HEAVEN gods
+  const dropCh = t.superMvp ? 0.5 : t.mvp ? 0.25 : t.boss ? 0.08 : 0.005;
   if (Math.random() < dropCh && killer.eq.inv.length < INV_MAX) {
     const kind = ['w', 'a', 's', 'x', 'h', 'b'][Math.floor(Math.random() * 6)];
     let tier;
@@ -1157,7 +1422,8 @@ function killMonster(m, killer) {
     else if (t.lvl >= 6) tier = Math.random() < 0.6 ? 3 : 2;
     else tier = Math.random() < 0.6 ? 2 : 1;
     let rarity;
-    if (t.mvp) { const r = Math.random(); rarity = r < 0.4 ? 3 : r < 0.8 ? 2 : 1; }        // MVP: 40% Legendary
+    if (t.superMvp) { tier = 5; rarity = Math.random() < 0.6 ? 4 : 3; }                    // gods: 60% MULTIVERSE
+    else if (t.mvp) { const r = Math.random(); rarity = r < 0.4 ? 3 : r < 0.8 ? 2 : 1; }   // MVP: 40% Legendary
     else { const r = Math.random(); rarity = r < 0.7 ? 0 : r < 0.95 ? 1 : 2; }             // others: max Epic
     const it = newItem(kind, tier, rarity);
     killer.eq.inv.push(it);
@@ -1263,6 +1529,13 @@ setInterval(() => {
         } else if (m.type === 'plague') {
           broadcast(fxMsg);
           for (const pid in players) { const pl = players[pid]; if (!pl.dead && Math.hypot(pl.x - m.x, pl.y - m.y) < 105) { if (monsterHitsPlayer(m, pl, Math.floor(t.atk * 0.85))) killPlayer(pl, m); } }
+        } else if (m.type === 'demon' && d < 170) {
+          fxMsg.x = Math.round(tgt.x); fxMsg.y = Math.round(tgt.y); broadcast(fxMsg);
+          if (monsterHitsPlayer(m, tgt, Math.floor(t.atk * 1.3))) killPlayer(tgt, m);
+        } else if (m.type === 'cherub' && d < 180) {
+          fxMsg.x = Math.round(tgt.x); fxMsg.y = Math.round(tgt.y); broadcast(fxMsg);
+          m.hp = Math.min(t.hp, m.hp + 300);
+          if (monsterHitsPlayer(m, tgt, Math.floor(t.atk * 1.2))) killPlayer(tgt, m);
         }
       }
       // ---- boss enrage + SOLARIS MVP rotation ----
@@ -1362,7 +1635,8 @@ function publicPlayer(p) {
     eq: [w ? w.t : 0, w ? w.p : 0, a ? a.t : 0, a ? a.p : 0], po: [p.eq.red, p.eq.white],
     wc: w ? w.c : null, ac: a ? a.c : null, cd: p.eq.cards, adv: p.adv || 0,
     spm: 1 + cardEff(p, 'a', 'spd') + (p.spdBonus || 0), au: cardEff(p, 'a', 'aura') > 0 ? 1 : 0,
-    hx: p.home ? p.home.x : 0, hy: p.home ? p.home.y : 0, pk: p.pk || 0, sf: inHome(p) ? 1 : 0
+    hx: p.home ? p.home.x : 0, hy: p.home ? p.home.y : 0, pk: p.pk || 0, sf: inHome(p) ? 1 : 0,
+    pt: p.party || ''
   };
 }
 
