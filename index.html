@@ -212,6 +212,7 @@ const CARD_INFO = {
   inferno:   ['INFERNO CARD',    'W: 20% METEOR +20% dmg', 'A: FIRE AURA 25'],
   seraphim:  ['SERAPHIM CARD',   'W: +15% lifesteal +15% dmg', 'A: +500HP +15regen +5% reduce'],
   chronos:   ['CHRONOS CARD',    'W: +40% dmg +10% SOLAR', 'A: +400HP +12% reduce +8% speed'],
+  celestial: ['CELESTIAL CARD',  'W: +60% damage!!',   'A: +800HP +15% reduce +20 regen'],
   hero_swordsman: ['HERO CARD Swordsman', 'W: +15 atk +5% dmg', 'A: +150HP +3% reduce'],
   hero_archer:    ['HERO CARD Archer',    'W: +12% aspd +5% crit', 'A: +8% dodge'],
   hero_mage:      ['HERO CARD Mage',      'W: +15% dmg',       'A: +6 regen'],
@@ -988,6 +989,63 @@ function drawMob(mo, animT) {
     cx.fillRect(x - 15, y - 18, 8, 5); cx.fillRect(x + 7, y - 18, 8, 5);// wings
     cx.fillStyle = '#ffd76a'; cx.fillRect(x - 5, y - 29, 10, 2);        // halo
     cx.fillStyle = '#4a4458'; cx.fillRect(x - 3, y - 22, 2, 2); cx.fillRect(x + 1, y - 22, 2, 2);
+  } else if (t.ty === 'celestial') {
+    // ═══ THE CELESTIAL, GOD OF GODS — a colossal cosmic titan ═══
+    const pulse = 4 * Math.sin(animT / 9);
+    // cosmic presence
+    cx.fillStyle = 'rgba(120,140,255,.10)';
+    cx.beginPath(); cx.arc(x, y - 46, 95 + pulse, 0, 7); cx.fill();
+    cx.fillStyle = 'rgba(255,215,106,.08)';
+    cx.beginPath(); cx.arc(x, y - 46, 72 - pulse, 0, 7); cx.fill();
+    // orbiting stars
+    for (let k = 0; k < 14; k++) {
+      const a = k / 14 * 6.28 + animT / 30, rr = 80 + 8 * Math.sin(animT / 11 + k * 2);
+      cx.fillStyle = 'rgba(255,255,255,' + (0.35 + 0.35 * Math.sin(animT / 5 + k * 3)) + ')';
+      cx.fillRect(x + Math.cos(a) * rr - 1, y - 46 + Math.sin(a) * rr * 0.7 - 1, k % 3 === 0 ? 4 : 2, k % 3 === 0 ? 4 : 2);
+    }
+    // pillar legs
+    cx.fillStyle = '#232342';
+    cx.fillRect(x - 40, y - 34, 22, 34); cx.fillRect(x + 18, y - 34, 22, 34);
+    cx.fillStyle = '#c9a227';
+    cx.fillRect(x - 40, y - 8, 22, 4); cx.fillRect(x + 18, y - 8, 22, 4);   // gold boots trim
+    // massive armored torso
+    cx.fillStyle = '#2a2a4e';
+    cx.fillRect(x - 46, y - 84, 92, 52);
+    cx.fillStyle = '#383866';                                               // panel lines
+    cx.fillRect(x - 46, y - 84, 92, 4); cx.fillRect(x - 3, y - 84, 6, 52);
+    cx.fillRect(x - 46, y - 58, 92, 3);
+    // colossal shoulders
+    cx.fillStyle = '#33335c';
+    cx.fillRect(x - 66, y - 90, 26, 22); cx.fillRect(x + 40, y - 90, 26, 22);
+    cx.fillStyle = '#c9a227';
+    cx.fillRect(x - 66, y - 90, 26, 4); cx.fillRect(x + 40, y - 90, 26, 4);
+    // arms
+    cx.fillStyle = '#232342';
+    cx.fillRect(x - 62, y - 68, 16, 40); cx.fillRect(x + 46, y - 68, 16, 40);
+    // burning chest core (diamond)
+    const g = 0.5 + 0.4 * Math.sin(animT / 6);
+    cx.fillStyle = 'rgba(255,220,110,' + g + ')';
+    cx.beginPath(); cx.moveTo(x, y - 74); cx.lineTo(x + 12, y - 60); cx.lineTo(x, y - 46); cx.lineTo(x - 12, y - 60); cx.closePath(); cx.fill();
+    cx.fillStyle = '#fff';
+    cx.beginPath(); cx.moveTo(x, y - 68); cx.lineTo(x + 5, y - 60); cx.lineTo(x, y - 52); cx.lineTo(x - 5, y - 60); cx.closePath(); cx.fill();
+    // monolithic head
+    cx.fillStyle = '#2e2e54';
+    cx.fillRect(x - 20, y - 118, 40, 34);
+    cx.fillStyle = '#c9a227';                                               // crown fins
+    cx.fillRect(x - 20, y - 132, 6, 14); cx.fillRect(x - 7, y - 138, 6, 20);
+    cx.fillRect(x + 6, y - 138, 6, 20); cx.fillRect(x + 14, y - 132, 6, 14);
+    // glowing geometric face: three vertical eye slits
+    cx.fillStyle = 'rgba(255,235,140,' + (0.7 + 0.3 * Math.sin(animT / 7)) + ')';
+    cx.fillRect(x - 13, y - 112, 5, 20); cx.fillRect(x - 2, y - 112, 5, 24); cx.fillRect(x + 9, y - 112, 5, 20);
+    // title
+    cx.font = 'bold 13px Courier New'; cx.textAlign = 'center';
+    cx.fillStyle = 'rgba(0,0,0,.75)'; cx.fillText('✦ THE CELESTIAL ✦', x + 1, y - 155);
+    cx.fillStyle = '#ffe9a8'; cx.fillText('✦ THE CELESTIAL ✦', x, y - 156);
+    cx.font = 'bold 10px Courier New'; cx.fillStyle = '#8fd8ff';
+    cx.fillText('GOD OF GODS', x, y - 144);
+    cx.font = '9px Courier New'; cx.fillStyle = '#ff9a9a';
+    cx.fillText('PARTY OF 5+ REQUIRED', x, y - 168);
+    drawBar(x - 60, y - 152, 120, 6, t.hp / t.mh, '#ffd76a');
   } else if (t.ty === 'inferno' || t.ty === 'seraphim' || t.ty === 'chronos') {
     // THE THREE GODS of the 100-floor tower
     const pulse = 3 * Math.sin(animT / 7);
@@ -1033,7 +1091,7 @@ function drawMob(mo, animT) {
     cx.fillRect(x + 12, y - 15, 2, 2);                                   // eye
   }
   // hp bar + name if hurt or targeting (boss has its own big bar)
-  if (!['direking','solaris','necrolord','inferno','seraphim','chronos'].includes(t.ty) && (t.hp < t.mh || t.tg)) {
+  if (!['direking','solaris','necrolord','inferno','seraphim','chronos','celestial'].includes(t.ty) && (t.hp < t.mh || t.tg)) {
     drawBar(x - 12, y - 26, 24, 3, t.hp / t.mh, t.tg ? '#ff5050' : '#7ee06a');
   }
 }

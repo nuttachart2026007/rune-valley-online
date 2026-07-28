@@ -166,6 +166,7 @@ const CARDS = {
   inferno:   { name: 'INFERNO CARD',    w: { meteor: 0.20, dmg: 0.20 }, a: { aura: 25 },      drop: 0.08 },
   seraphim:  { name: 'SERAPHIM CARD',   w: { ls: 0.15, dmg: 0.15 }, a: { hp: 500, regen: 15, dr: 0.05 }, drop: 0.08 },
   chronos:   { name: 'CHRONOS CARD',    w: { dmg: 0.40, solar: 0.10 }, a: { hp: 400, dr: 0.12, spd: 0.08 }, drop: 0.08 },
+  celestial: { name: 'CELESTIAL CARD',  w: { dmg: 0.60 }, a: { hp: 800, dr: 0.15, regen: 20 }, drop: 0.06 },
   // HERO CARDS: dropped by players in PvP (15% on kill), effect depends on the fallen hero's class
   hero_swordsman: { name: 'HERO CARD · Swordsman', w: { atk: 15, dmg: 0.05 }, a: { hp: 150, dr: 0.03 } },
   hero_archer:    { name: 'HERO CARD · Archer',    w: { aspd: 0.12, crit: 0.05 }, a: { dodge: 0.08 } },
@@ -364,7 +365,8 @@ const MONSTER_TYPES = {
   cherub:    { name: 'Fallen Cherub', hp: 12000, atk: 190, xp: 8000, zeny: 3200, speed: 1.6, aggro: 300, lvl: 68 },
   inferno:   { name: 'INFERNO, Lord of Hell',    hp: 500000, atk: 400, xp: 120000, zeny: 120000, speed: 1.8, aggro: 360, lvl: 99, boss: true, mvp: true, superMvp: true, armor: 0.5, enrageAt: 0.5 },
   seraphim:  { name: 'SERAPHIM, the Divine Judge', hp: 500000, atk: 380, xp: 120000, zeny: 120000, speed: 1.7, aggro: 360, lvl: 99, boss: true, mvp: true, superMvp: true, armor: 0.55, enrageAt: 0.4 },
-  chronos:   { name: 'CHRONOS, God of the 100 Floors', hp: 800000, atk: 450, xp: 250000, zeny: 250000, speed: 1.9, aggro: 380, lvl: 99, boss: true, mvp: true, superMvp: true, armor: 0.6, enrageAt: 0.5 }
+  chronos:   { name: 'CHRONOS, God of the 100 Floors', hp: 800000, atk: 450, xp: 250000, zeny: 250000, speed: 1.9, aggro: 380, lvl: 99, boss: true, mvp: true, superMvp: true, armor: 0.6, enrageAt: 0.5 },
+  celestial: { name: 'THE CELESTIAL, God of Gods', hp: 2000000, atk: 600, xp: 600000, zeny: 600000, speed: 1.4, aggro: 420, lvl: 99, boss: true, mvp: true, superMvp: true, partyReq: 5, armor: 0.65, enrageAt: 0.5 }
 };
 // monster skills: fired while chasing a target, on a cooldown ("fx" reuses client skill visuals)
 const MOB_SKILLS = {
@@ -402,7 +404,8 @@ const SPAWN_ZONES = [
   ['inferno',   1, 4,  76, 20, 80],
   ['cherub',    7, 2,  82, 48, 88],
   ['seraphim',  1, 32, 83, 46, 87],
-  ['chronos',   1, 18, 84, 32, 88]
+  ['chronos',   1, 18, 84, 32, 88],
+  ['celestial', 1, 4,  83, 16, 88]
 ];
 
 let nextMonsterId = 1;
@@ -641,12 +644,13 @@ function lifesteal(p, dmg) {
 
 function hitMonster(p, m, dmg) {
   const t = MONSTER_TYPES[m.type];
-  // HELL & HEAVEN gods: immune unless attacked by a party of 3+ heroes standing together
-  if (t.superMvp && partyMembersNear(p, 400).length < 3) {
+  // HELL & HEAVEN gods: immune unless attacked by a big enough party standing together
+  const partyNeed = t.partyReq || 3;
+  if (t.superMvp && partyMembersNear(p, 400).length < partyNeed) {
     broadcast({ t: 'event', kind: 'hit', from: p.id, target: m.id, dmg: 'IMMUNE', tx: m.x, ty: m.y, cls: p.cls });
     if (!p.lastGodWarn || Date.now() - p.lastGodWarn > 5000) {
       p.lastGodWarn = Date.now();
-      sysMsg(p, '⛔ ' + t.name + ' ignores lone mortals! You need a PARTY of 3+ heroes nearby (/party join NAME).');
+      sysMsg(p, '⛔ ' + t.name + ' ignores lone mortals! You need a PARTY of ' + partyNeed + '+ heroes nearby (/party join NAME).');
     }
     m.target = p.id;
     return;
@@ -1378,7 +1382,7 @@ function handleChat(p, msg) {
     if (text === '/maint') { startMaintenance(); return; }
     if (text.startsWith('/call')) {
       const arg = (text.split(' ')[1] || '').toLowerCase();
-      const alias = { gorehorn: 'direking', direking: 'direking', solaris: 'solaris', necrolord: 'necrolord', inferno: 'inferno', seraphim: 'seraphim', chronos: 'chronos' };
+      const alias = { gorehorn: 'direking', direking: 'direking', solaris: 'solaris', necrolord: 'necrolord', inferno: 'inferno', seraphim: 'seraphim', chronos: 'chronos', celestial: 'celestial' };
       const ty = alias[arg];
       if (!ty) { sysMsg(p, 'Usage: /call gorehorn | solaris | necrolord | inferno | seraphim | chronos'); return; }
       const m = Object.values(monsters).find(mm => mm.type === ty);
@@ -1418,7 +1422,7 @@ function killMonster(m, killer) {
     }
   }
   // rare equipment drop - Legendary ONLY from MVP; MULTIVERSE ONLY from HELL & HEAVEN gods
-  const dropCh = t.superMvp ? 0.5 : t.mvp ? 0.25 : t.boss ? 0.08 : 0.005;
+  const dropCh = m.type === 'celestial' ? 0.8 : t.superMvp ? 0.5 : t.mvp ? 0.25 : t.boss ? 0.08 : 0.005;
   if (Math.random() < dropCh && killer.eq.inv.length < INV_MAX) {
     const kind = ['w', 'a', 's', 'x', 'h', 'b'][Math.floor(Math.random() * 6)];
     let tier;
@@ -1427,7 +1431,8 @@ function killMonster(m, killer) {
     else if (t.lvl >= 6) tier = Math.random() < 0.6 ? 3 : 2;
     else tier = Math.random() < 0.6 ? 2 : 1;
     let rarity;
-    if (t.superMvp) { tier = 5; rarity = Math.random() < 0.6 ? 4 : 3; }                    // gods: 60% MULTIVERSE
+    if (m.type === 'celestial') { tier = 5; rarity = Math.random() < 0.8 ? 4 : 3; }        // God of Gods: 80% MULTIVERSE
+    else if (t.superMvp) { tier = 5; rarity = Math.random() < 0.6 ? 4 : 3; }               // gods: 60% MULTIVERSE
     else if (t.mvp) { const r = Math.random(); rarity = r < 0.4 ? 3 : r < 0.8 ? 2 : 1; }   // MVP: 40% Legendary
     else { const r = Math.random(); rarity = r < 0.7 ? 0 : r < 0.95 ? 1 : 2; }             // others: max Epic
     const it = newItem(kind, tier, rarity);
