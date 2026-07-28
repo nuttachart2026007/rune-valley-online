@@ -1596,7 +1596,7 @@ function drawEquipPanel() {
       cx.font = '8px Courier New'; cx.fillStyle = it.c ? '#c9a2ff' : '#5a5470';
       cx.fillText(it.c ? CARD_INFO[it.c][0] + ' ★' + (it.cs || 1) : '[empty socket]', x0 + 66, y + 24);
       const ch = Math.round(Math.pow(0.8, it.p) * 100);
-      btn(equipRects, x0 + w - 252, y + 2, 50, 24, it.p >= 10 ? 'MAX' : '+' + (it.p + 1) + ' ' + ch + '%', '#5c3a7a', '#e0d0f5', { act: 'upgitem', item: it.id });
+      btn(equipRects, x0 + w - 252, y + 2, 50, 24, it.p >= 15 ? 'MAX' : '+' + (it.p + 1) + ' ' + ch + '%', '#5c3a7a', '#e0d0f5', { act: 'upgitem', item: it.id });
       if (it.c && (it.cs || 1) < 10) btn(equipRects, x0 + w - 197, y + 2, 40, 24, 'UP★', '#8a6a20', '#ffe9a8', { act: 'upcard', item: it.id });
       btn(equipRects, x0 + w - 152, y + 2, 46, 24, it.c ? 'CARD-' : 'CARD+', it.c ? '#5c3a3a' : '#2d5c3a', '#fff', { act: it.c ? 'delcard' : 'addcard', item: it.id });
       btn(equipRects, x0 + w - 101, y + 2, 40, 24, 'UNEQ', '#3a3348', '#cfc4e8', { act: 'unequip', slot: sl });
