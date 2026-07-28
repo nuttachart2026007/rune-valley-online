@@ -396,7 +396,7 @@ function onMsg(e) {
         const dist = Math.hypot(p.x - me.x, p.y - me.y);
         me.hp = p.hp; me.mh = p.mh; me.lv = p.lv; me.xp = p.xp; me.xn = p.xn; me.z = p.z; me.b = p.b; me.eq = p.eq; me.po = p.po;
         me.wc = p.wc; me.ac = p.ac; me.cards = p.cd; me.spm = p.spm; me.au = p.au; me.adv = p.adv;
-        me.hx = p.hx; me.hy = p.hy; me.sf = p.sf; me.pk = p.pk;
+        me.hx = p.hx; me.hy = p.hy; me.sf = p.sf; me.pk = p.pk; me.pt = p.pt;
         if (p.dead !== me.dead || dist > 80) { me.x = p.x; me.y = p.y; }
         me.dead = p.dead;
       } else {
@@ -1241,6 +1241,7 @@ function drawHud() {
   }
 
   drawSkillBar();
+  drawPartyPanel();
   drawRankPanel();
   drawJobChoice();
   drawShopPanel();
@@ -1289,6 +1290,27 @@ function drawHud() {
 function toggleRank() {
   showRank = !showRank;
   if (showRank && ws && ws.readyState === 1) ws.send(JSON.stringify({ t:'rank' }));
+}
+
+// ---- PARTY PANEL: teammates + live HP, always on screen while in a party ----
+function drawPartyPanel() {
+  if (!me || !me.pt) return;
+  const members = roster.filter(p => p.pt === me.pt);
+  if (members.length < 1) return;
+  const w = 148, x0 = 8, y0 = 64;
+  const h = 22 + members.length * 26;
+  cx.fillStyle = 'rgba(12,8,22,.72)'; cx.fillRect(x0, y0, w, h);
+  cx.strokeStyle = '#5c8a5c'; cx.lineWidth = 1; cx.strokeRect(x0 + .5, y0 + .5, w - 1, h - 1);
+  cx.textAlign = 'left'; cx.font = 'bold 10px Courier New'; cx.fillStyle = '#8fe08f';
+  cx.fillText('⚑ PARTY (' + members.length + ')', x0 + 8, y0 + 14);
+  let y = y0 + 24;
+  for (const p of members) {
+    cx.font = '10px Courier New';
+    cx.fillStyle = p.dead ? '#8a5a5a' : p.id === myId ? '#ffd76a' : '#e8e4f5';
+    cx.fillText(p.n.slice(0, 12) + ' Lv' + p.lv + (p.dead ? ' ✝' : ''), x0 + 8, y + 9);
+    drawBar(x0 + 8, y + 13, w - 16, 4, p.hp / p.mh, p.hp / p.mh > 0.35 ? '#7ee06a' : '#e74c3c');
+    y += 26;
+  }
 }
 
 // ---- JOB ADVANCEMENT choice panel (Lv30) ----

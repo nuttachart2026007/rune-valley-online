@@ -1345,7 +1345,12 @@ function handleChat(p, msg) {
   }
   // ---- /party : team up! ----
   if (text === '/party' || text === '/party help') {
-    sysMsg(p, 'Party: /party create · /party join NAME · /party leave. Members share XP, never hurt each other, and can fight the HELL & HEAVEN gods!');
+    if (p.party) {
+      const members = Object.values(players).filter(v => sameParty(v, p) || v.id === p.id).map(v => v.name + ' Lv' + v.level);
+      sysMsg(p, '⚑ Party [' + p.party + ']: ' + members.join(', '));
+    } else {
+      sysMsg(p, 'No party yet. /party create · /party join NAME · /party leave. Members share XP, never hurt each other, and can fight the gods!');
+    }
     return;
   }
   if (text === '/party create') {
