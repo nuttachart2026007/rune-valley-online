@@ -397,7 +397,7 @@ function onMsg(e) {
         const dist = Math.hypot(p.x - me.x, p.y - me.y);
         me.hp = p.hp; me.mh = p.mh; me.lv = p.lv; me.xp = p.xp; me.xn = p.xn; me.z = p.z; me.b = p.b; me.eq = p.eq; me.po = p.po;
         me.wc = p.wc; me.ac = p.ac; me.cards = p.cd; me.spm = p.spm; me.au = p.au; me.adv = p.adv;
-        me.hx = p.hx; me.hy = p.hy; me.sf = p.sf; me.pk = p.pk; me.pt = p.pt;
+        me.hx = p.hx; me.hy = p.hy; me.sf = p.sf; me.pk = p.pk; me.pt = p.pt; me.hd = p.hd; me.mvw = p.mvw;
         if (p.dead !== me.dead || dist > 80) { me.x = p.x; me.y = p.y; }
         me.dead = p.dead;
       } else {
@@ -723,15 +723,29 @@ const SKIN = '#f1c27d', SKIN_SH = '#d9a066';
 function P(sx, sy, x, y, w, h, col) { cx.fillStyle = col; cx.fillRect(sx + x*2, sy + y*2, w*2, h*2); }
 
 // character sprite ~16x20 units, anchored bottom-center
-function drawChar(x, y, cls, dir, moving, animT, name, hp, mh, lv, isMe, dead, buffed) {
+function drawChar(x, y, cls, dir, moving, animT, name, hp, mh, lv, isMe, dead, buffed, aura, headT, headR, mvw) {
   const pal = CLS_PAL[cls] || CLS_PAL.swordsman;
   const sx = Math.round(x - 16), sy = Math.round(y - 36);
   const step = moving ? (Math.floor(animT / 8) % 2 === 0 ? 1 : -1) : 0;
   const bob = moving ? (Math.floor(animT / 8) % 2) : 0;
 
   if (dead) { cx.globalAlpha = 0.45; }
+  // 🌌 MULTIVERSE AWAKENING: rainbow aura (any Multiverse item at +15)
+  if (mvw && !dead) {
+    const hue = (animT * 4) % 360;
+    cx.strokeStyle = 'hsla(' + hue + ',90%,65%,.7)';
+    cx.lineWidth = 2.5;
+    cx.beginPath(); cx.ellipse(x, y - 12, 24 + 2 * Math.sin(animT / 5), 30 + 2 * Math.sin(animT / 5), 0, 0, 7); cx.stroke();
+    cx.strokeStyle = 'hsla(' + ((hue + 120) % 360) + ',90%,65%,.45)';
+    cx.beginPath(); cx.ellipse(x, y - 12, 29, 35, 0, 0, 7); cx.stroke();
+    for (let k = 0; k < 4; k++) {
+      const a = k / 4 * 6.28 + animT / 12;
+      cx.fillStyle = 'hsla(' + ((hue + k * 90) % 360) + ',90%,70%,.8)';
+      cx.fillRect(x + Math.cos(a) * 26 - 1, y - 12 + Math.sin(a) * 32 * 0.6 - 1, 3, 3);
+    }
+  }
   // GOREHORN fire aura (armor card)
-  if (arguments[13] && !dead) {
+  if (aura && !dead) {
     for (let k = 0; k < 6; k++) {
       const a = (animT / 6 + k) % 6.28;
       cx.fillStyle = 'rgba(255,' + (100 + Math.floor(60 * Math.sin(animT / 4 + k))) + ',40,' + (0.25 + 0.12 * Math.sin(animT / 3 + k * 2)) + ')';
@@ -792,6 +806,33 @@ function drawChar(x, y, cls, dir, moving, animT, name, hp, mh, lv, isMe, dead, b
   if (dir !== 'up') {
     const ex = dir === 'left' ? -1 : dir === 'right' ? 1 : 0;
     P(sx, sy, 6+ex, 5+oy, 1, 2, '#2a2030'); P(sx, sy, 9+ex, 5+oy, 1, 2, '#2a2030');
+  }
+  // ---- VISIBLE HEADGEAR (RO style) ----
+  if (headT) {
+    const glow = headR >= 4 ? '#ff5ae0' : headR >= 3 ? '#ffb020' : null;
+    if (glow) {
+      cx.fillStyle = glow === '#ff5ae0' ? 'rgba(255,90,224,' + (0.2 + 0.12 * Math.sin(animT / 5)) + ')' : 'rgba(255,176,32,' + (0.2 + 0.12 * Math.sin(animT / 5)) + ')';
+      cx.beginPath(); cx.ellipse(x, y - 34 + oy * 2, 15, 9, 0, 0, 7); cx.fill();
+    }
+    if (headT === 1) {          // Cap: simple brown cap
+      P(sx, sy, 3, 0+oy, 10, 2, '#7a5a3a'); P(sx, sy, 2, 2+oy, 12, 1, '#5d4030');
+    } else if (headT === 2) {   // Helm: steel helm with nose guard
+      P(sx, sy, 3, -1+oy, 10, 3, '#b8c4d0'); P(sx, sy, 2, 2+oy, 12, 1, '#8a96a4');
+      P(sx, sy, 7, 3+oy, 2, 3, '#b8c4d0');
+    } else if (headT === 3) {   // Circlet: gold band + gem
+      P(sx, sy, 3, 1+oy, 10, 1, '#ffd76a'); P(sx, sy, 7, 0+oy, 2, 2, '#66d9ff');
+    } else if (headT === 4) {   // Valkyrie Helm: silver with white wings
+      P(sx, sy, 3, -1+oy, 10, 3, '#d8dce4'); P(sx, sy, 7, -3+oy, 2, 2, '#ffd76a');
+      P(sx, sy, 0, -2+oy, 3, 4, '#fff'); P(sx, sy, 13, -2+oy, 3, 4, '#fff');   // wings
+      P(sx, sy, -1, -3+oy, 2, 2, '#fff'); P(sx, sy, 15, -3+oy, 2, 2, '#fff');
+    } else if (headT >= 5) {    // Hat of the Sun God: golden crown with rays
+      P(sx, sy, 3, 0+oy, 10, 2, '#ffd76a');
+      P(sx, sy, 3, -3+oy, 2, 3, '#ffd76a'); P(sx, sy, 7, -5+oy, 2, 5, '#ffe9a8'); P(sx, sy, 11, -3+oy, 2, 3, '#ffd76a');
+      P(sx, sy, 5, -2+oy, 1, 2, '#ff9a3c'); P(sx, sy, 10, -2+oy, 1, 2, '#ff9a3c');
+      const sg = 0.3 + 0.2 * Math.sin(animT / 5);
+      cx.fillStyle = 'rgba(255,215,106,' + sg + ')';
+      cx.beginPath(); cx.arc(x, y - 38 + oy * 2, 10 + Math.sin(animT / 6), 0, 7); cx.fill();
+    }
   }
   // weapon
   cx.save();
@@ -1043,8 +1084,6 @@ function drawMob(mo, animT) {
     cx.fillStyle = '#ffe9a8'; cx.fillText('✦ THE CELESTIAL ✦', x, y - 156);
     cx.font = 'bold 10px Courier New'; cx.fillStyle = '#8fd8ff';
     cx.fillText('GOD OF GODS', x, y - 144);
-    cx.font = '9px Courier New'; cx.fillStyle = '#ff9a9a';
-    cx.fillText('PARTY OF 5+ REQUIRED', x, y - 168);
     drawBar(x - 60, y - 152, 120, 6, t.hp / t.mh, '#ffd76a');
   } else if (t.ty === 'inferno' || t.ty === 'seraphim' || t.ty === 'chronos') {
     // THE THREE GODS of the 100-floor tower
@@ -1075,8 +1114,6 @@ function drawMob(mo, animT) {
     cx.font = 'bold 12px Courier New'; cx.textAlign = 'center';
     cx.fillStyle = 'rgba(0,0,0,.7)'; cx.fillText(theme.label, x + 1, y - 65);
     cx.fillStyle = theme.lc; cx.fillText(theme.label, x, y - 66);
-    cx.font = '9px Courier New'; cx.fillStyle = '#ff9a9a';
-    cx.fillText('PARTY OF 3+ REQUIRED', x, y - 78);
     drawBar(x - 45, y - 62, 90, 5, t.hp / t.mh, theme.lc);
   } else if (t.ty === 'wolf') {
     cx.fillStyle = '#6b7280';
@@ -1816,9 +1853,9 @@ function frame() {
   for (const id in mobs) ents.push({ y: mobs[id].cur.y, draw: () => drawMob(mobs[id], tick) });
   for (const id in others) {
     const o = others[id]; const t = o.tgt; if (!t) continue;
-    ents.push({ y: o.cur.y, draw: () => { drawChar(o.cur.x, o.cur.y, t.c, t.d, t.mv, o.anim, (t.pt ? '⚑' : '') + (t.adv ? '★' : '') + t.n, t.hp, t.mh, t.lv, false, t.dead, t.b, t.au); drawBubble(id, o.cur.x, o.cur.y); } });
+    ents.push({ y: o.cur.y, draw: () => { drawChar(o.cur.x, o.cur.y, t.c, t.d, t.mv, o.anim, (t.pt ? '⚑' : '') + (t.adv ? '★' : '') + t.n, t.hp, t.mh, t.lv, false, t.dead, t.b, t.au, t.hd ? t.hd[0] : 0, t.hd ? t.hd[1] : 0, t.mvw); drawBubble(id, o.cur.x, o.cur.y); } });
   }
-  ents.push({ y: me.y, draw: () => { drawChar(me.x, me.y, me.c, me.dir, me.moving, tick, (me.adv ? '★' : '') + me.n, me.hp, me.mh, me.lv, true, me.dead, me.b, me.au); drawBubble(myId, me.x, me.y); } });
+  ents.push({ y: me.y, draw: () => { drawChar(me.x, me.y, me.c, me.dir, me.moving, tick, (me.pt ? '⚑' : '') + (me.adv ? '★' : '') + me.n, me.hp, me.mh, me.lv, true, me.dead, me.b, me.au, me.hd ? me.hd[0] : 0, me.hd ? me.hd[1] : 0, me.mvw); drawBubble(myId, me.x, me.y); } });
   // trees drawn on top of ground but below entities standing lower — draw canopy after entities for simple depth
   ents.sort((a, b) => a.y - b.y).forEach(e => e.draw());
 

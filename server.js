@@ -215,7 +215,8 @@ function recalcStats(p) {
   const w = equippedItem(p, 'w'), a = equippedItem(p, 'a'), s = equippedItem(p, 's');
   const h = equippedItem(p, 'h'), b = equippedItem(p, 'b');
   const x1 = equippedItem(p, 'x1'), x2 = equippedItem(p, 'x2');
-  const rm = it => it ? RARITY_MULT[it.r || 0] : 1;
+  // MULTIVERSE AWAKENING: a Multiverse item refined to +15 jumps from x3 to x4.5 power
+  const rm = it => it ? RARITY_MULT[it.r || 0] * (it.r === 4 && it.p >= 15 ? 1.5 : 1) : 1;
   const st = p.st;
   p.atk = base.atk + st.str + (w ? Math.round(WEAPON_TIERS[w.t] * rm(w)) + w.p * 3 : 0) + cardEff(p, 'w', 'atk') + (p.adv ? 5 : 0);
   p.maxHp = base.maxHp + st.vit * 8
@@ -366,7 +367,7 @@ const MONSTER_TYPES = {
   inferno:   { name: 'INFERNO, Lord of Hell',    hp: 500000, atk: 400, xp: 120000, zeny: 120000, speed: 1.8, aggro: 360, lvl: 99, boss: true, mvp: true, superMvp: true, armor: 0.5, enrageAt: 0.5 },
   seraphim:  { name: 'SERAPHIM, the Divine Judge', hp: 500000, atk: 380, xp: 120000, zeny: 120000, speed: 1.7, aggro: 360, lvl: 99, boss: true, mvp: true, superMvp: true, armor: 0.55, enrageAt: 0.4 },
   chronos:   { name: 'CHRONOS, God of the 100 Floors', hp: 800000, atk: 450, xp: 250000, zeny: 250000, speed: 1.9, aggro: 380, lvl: 99, boss: true, mvp: true, superMvp: true, armor: 0.6, enrageAt: 0.5 },
-  celestial: { name: 'THE CELESTIAL, God of Gods', hp: 2000000, atk: 600, xp: 600000, zeny: 600000, speed: 1.4, aggro: 420, lvl: 99, boss: true, mvp: true, superMvp: true, partyReq: 5, armor: 0.65, enrageAt: 0.5 }
+  celestial: { name: 'THE CELESTIAL, God of Gods', hp: 2000000, atk: 1000, aoeDmg: 5000, xp: 600000, zeny: 600000, speed: 1.4, aggro: 420, lvl: 99, boss: true, mvp: true, superMvp: true, armor: 0.65, enrageAt: 0.5 }
 };
 // monster skills: fired while chasing a target, on a cooldown ("fx" reuses client skill visuals)
 const MOB_SKILLS = {
@@ -644,17 +645,7 @@ function lifesteal(p, dmg) {
 
 function hitMonster(p, m, dmg) {
   const t = MONSTER_TYPES[m.type];
-  // HELL & HEAVEN gods: immune unless attacked by a big enough party standing together
-  const partyNeed = t.partyReq || 3;
-  if (t.superMvp && partyMembersNear(p, 400).length < partyNeed) {
-    broadcast({ t: 'event', kind: 'hit', from: p.id, target: m.id, dmg: 'IMMUNE', tx: m.x, ty: m.y, cls: p.cls });
-    if (!p.lastGodWarn || Date.now() - p.lastGodWarn > 5000) {
-      p.lastGodWarn = Date.now();
-      sysMsg(p, '⛔ ' + t.name + ' ignores lone mortals! You need a PARTY of ' + partyNeed + '+ heroes nearby (/party join NAME).');
-    }
-    m.target = p.id;
-    return;
-  }
+  // v12: gods can be fought by anyone - no party requirement (parties still share XP + protect each other)
   if (t.armor) dmg = Math.max(1, Math.floor(dmg * (1 - t.armor)));            // MVP natural armor
   if (Date.now() < (m.shieldUntil || 0)) dmg = Math.max(1, Math.floor(dmg * 0.5)); // crab bubble shell
   m.hp -= dmg;
@@ -700,8 +691,18 @@ function nearestMonster(x, y, maxR) {
 
 // ---------------- HOME (safe zone bought with zeny) ----------------
 const HOME_COST = 100000;
-const HOME_R = 64;  // safe radius around own home
-function inHome(p) { return !!(p.home && !p.dead && Math.hypot(p.x - p.home.x, p.y - p.home.y) < HOME_R); }
+const HOME_R = 64;          // safe radius around own home
+const HOME_SHELTER_MS = 60000; // shelter lasts max 1 minute per visit (no camping from bosses!)
+function inHome(p) {
+  const inside = !!(p.home && !p.dead && Math.hypot(p.x - p.home.x, p.y - p.home.y) < HOME_R);
+  if (!inside) { p.homeSince = 0; p.homeWarned = false; return false; }
+  if (!p.homeSince) p.homeSince = Date.now();
+  if (Date.now() - p.homeSince > HOME_SHELTER_MS) {
+    if (!p.homeWarned) { p.homeWarned = true; if (p.ws) sysMsg(p, '⚠️ Your home wards are EXHAUSTED (1 min limit)! You are no longer protected - step outside to recharge them.'); }
+    return false;
+  }
+  return true;
+}
 
 // ---------------- PARTY SYSTEM ----------------
 function sameParty(a, b) { return !!(a && b && a.party && a.party === b.party); }
@@ -1236,7 +1237,8 @@ wss.on('connection', (ws) => {
           it.p++;
           recalcStats(me);
           send(ws, { t: 'shopnote', ok: true, msg: 'SUCCESS! ' + itemName(it) + '!' });
-          if (it.p >= 8) broadcast({ t: 'event', kind: 'boss', text: me.name + ' refined ' + itemName(it) + '!' });
+          if (it.p >= 15 && it.r === 4) broadcast({ t: 'event', kind: 'boss', text: '🌌🌌 ' + me.name + ' has AWAKENED the MULTIVERSE POWER of ' + itemName(it) + '!! (x4.5 stats + rainbow aura) 🌌🌌' });
+          else if (it.p >= 8) broadcast({ t: 'event', kind: 'boss', text: me.name + ' refined ' + itemName(it) + '!' });
         } else {
           send(ws, { t: 'shopnote', ok: false, msg: 'FAILED... ' + cost + 'z gone. The anvil laughs.' });
         }
@@ -1559,7 +1561,8 @@ setInterval(() => {
         if (now > (m.flareAt || 0)) {
           m.flareAt = now + (m.enraged ? 6000 : 8000);
           broadcast({ t: 'event', kind: 'skillfx', id: m.id, skill: 'inferno', x: Math.round(m.x), y: Math.round(m.y) });
-          for (const pid in players) { const pl = players[pid]; if (!pl.dead && Math.hypot(pl.x - m.x, pl.y - m.y) < 130) { if (monsterHitsPlayer(m, pl, Math.floor(t.atk * 2 * rage))) killPlayer(pl, m); } }
+          const flareDmg = t.aoeDmg || Math.floor(t.atk * 2 * rage);
+          for (const pid in players) { const pl = players[pid]; if (!pl.dead && Math.hypot(pl.x - m.x, pl.y - m.y) < 130) { if (monsterHitsPlayer(m, pl, flareDmg)) killPlayer(pl, m); } }
         }
         if (now > (m.beamAt || 0) && d < 260) {
           m.beamAt = now + (m.enraged ? 4000 : 5000);
@@ -1638,6 +1641,8 @@ setInterval(() => { for (const id in players) sendSave(players[id]); }, 30000);
 
 function publicPlayer(p) {
   const w = equippedItem(p, 'w'), a = equippedItem(p, 'a');
+  const hh = equippedItem(p, 'h');
+  const awakened = EQUIP_SLOTS.some(sl => { const it = equippedItem(p, sl); return it && it.r === 4 && it.p >= 15; });
   return {
     id: p.id, n: p.name, c: p.cls, x: Math.round(p.x), y: Math.round(p.y),
     d: p.dir, mv: p.moving, hp: p.hp, mh: p.maxHp, lv: p.level,
@@ -1646,7 +1651,8 @@ function publicPlayer(p) {
     wc: w ? w.c : null, ac: a ? a.c : null, cd: p.eq.cards, adv: p.adv || 0,
     spm: 1 + cardEff(p, 'a', 'spd') + (p.spdBonus || 0), au: cardEff(p, 'a', 'aura') > 0 ? 1 : 0,
     hx: p.home ? p.home.x : 0, hy: p.home ? p.home.y : 0, pk: p.pk || 0, sf: inHome(p) ? 1 : 0,
-    pt: p.party || ''
+    pt: p.party || '',
+    hd: hh ? [hh.t, hh.r || 0] : [0, 0], mvw: awakened ? 1 : 0
   };
 }
 
