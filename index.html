@@ -99,7 +99,7 @@
   <canvas id="game" width="960" height="600"></canvas>
   <div id="chatlog"></div>
   <input id="chatin" maxlength="120" placeholder="Say something... (Enter to send, Esc to close)">
-  <div id="hint">WASD / Arrows — move<br>SPACE — attack<br>1-7 — skills (7 = ULTIMATE at Lv99)<br>8 / 9 — potions<br>B — shop · C — cards<br>TAB — players · ENTER — chat</div>
+  <div id="hint">WASD / Arrows — move<br>SPACE — attack<br>1-7 — skills (7 = ULTIMATE at Lv99)<br>8 / 9 — potions<br>B — shop · C — cards<br>TAB — players · ENTER — chat<br>/build in chat — build home (10,000z)</div>
   <div id="touchui" style="display:none;">
     <div id="joy"><div id="joyknob"></div></div>
     <div id="btnAtk" class="tbtn">ATK</div>
@@ -157,6 +157,7 @@ let banner = null;                // {text, until}
 let roster = [];                  // all online players (from state)
 let showRank = false;             // TAB panel open
 let rankTop = [];                 // hall of fame from server
+let rankPvp = [];                 // PVP killers leaderboard from server
 const SKILL_KEYS = {
   swordsman: ['bash','whirl','warcry','bbash','quicken','lordaura','ragnarok'],
   archer: ['dstrafe','arrowrain','snipe','focus','astorm','truesight','arrowgod'],
@@ -348,6 +349,8 @@ function onMsg(e) {
     document.getElementById('login').style.display = 'none';
     if (m.restored) log('Welcome back, ' + me.n + '! Lv' + me.lv + ' ' + me.c + ' restored.', 'lvl');
     else log('Welcome to 007 Online, ' + me.n + '! Remember your PIN.', 'sys');
+    log('Tip: type /build in chat to build your own home (10,000z) - a safe zone where nothing can hurt you!', 'sys');
+    log('⚠️ PVP deaths now cost 30% zeny + risk of item theft. Fight wisely!', 'sys');
     setupTouch();
     requestAnimationFrame(frame);
     return;
@@ -362,7 +365,7 @@ function onMsg(e) {
     try { localStorage.setItem('rvo_' + m.name.toLowerCase(), m.token); } catch {}
     return;
   }
-  if (m.t === 'rank') { rankTop = m.top || []; return; }
+  if (m.t === 'rank') { rankTop = m.top || []; rankPvp = m.pvp || []; return; }
   if (m.t === 'shopnote') { shopNote = { msg: m.msg, ok: m.ok, until: Date.now() + 3500 }; log(m.msg, m.ok ? 'lvl' : 'sys'); return; }
   if (m.t === 'inv') { invD = { inv: m.inv, eqp: m.eqp, st: m.st, sp: m.sp }; return; }
   if (m.t === 's') {
@@ -376,6 +379,7 @@ function onMsg(e) {
         const dist = Math.hypot(p.x - me.x, p.y - me.y);
         me.hp = p.hp; me.mh = p.mh; me.lv = p.lv; me.xp = p.xp; me.xn = p.xn; me.z = p.z; me.b = p.b; me.eq = p.eq; me.po = p.po;
         me.wc = p.wc; me.ac = p.ac; me.cards = p.cd; me.spm = p.spm; me.au = p.au; me.adv = p.adv;
+        me.hx = p.hx; me.hy = p.hy; me.sf = p.sf; me.pk = p.pk;
         if (p.dead !== me.dead || dist > 80) { me.x = p.x; me.y = p.y; }
         me.dead = p.dead;
       } else {
@@ -1189,7 +1193,7 @@ function toggleRank() {
 function drawRankPanel() {
   if (!showRank) return;
   const w = Math.min(460, cv.width - 12), x0 = (cv.width - w) / 2, y0 = 60;
-  const rows = Math.max(roster.length, 1) + rankTop.length + 6;
+  const rows = Math.max(roster.length, 1) + rankTop.length + rankPvp.length + 8;
   const h = Math.min(470, 70 + rows * 17);
   cx.fillStyle = 'rgba(12,8,22,.93)'; cx.fillRect(x0, y0, w, h);
   cx.strokeStyle = '#5c4a8a'; cx.lineWidth = 2; cx.strokeRect(x0, y0, w, h);
@@ -1221,6 +1225,19 @@ function drawRankPanel() {
     cx.fillText('  #' + (i + 1) + ' ' + r.n.padEnd(13) + ' Lv' + String(r.lv).padEnd(4) + r.c.padEnd(11) + r.z + 'z', x0 + 18, y);
     y += 16;
   });
+  if (rankPvp.length) {
+    y += 10;
+    cx.font = 'bold 11px Courier New'; cx.fillStyle = '#ff5050';
+    cx.fillText('⚔ PVP KILLERS - most player kills', x0 + 18, y);
+    y += 16;
+    cx.font = '11px Courier New';
+    rankPvp.forEach((r, i) => {
+      if (y > y0 + h - 8) return;
+      cx.fillStyle = i === 0 ? '#ff7070' : '#e0a0a0';
+      cx.fillText('  #' + (i + 1) + ' ' + r.n.padEnd(13) + ' Lv' + String(r.lv).padEnd(4) + r.c.padEnd(11) + r.k + ' kills', x0 + 18, y);
+      y += 16;
+    });
+  }
   cx.textAlign = 'center'; cx.font = '10px Courier New'; cx.fillStyle = '#6a6080';
   cx.fillText('press TAB to close', cv.width / 2, y0 + h - 8);
 }
@@ -1557,6 +1574,12 @@ function frame() {
 
   drawShopNPC();
 
+  // player homes (safe zones)
+  for (const p of roster) {
+    if (!p.hx && !p.hy) continue;
+    drawHome(p.hx, p.hy, p.n, p.id === myId, p.sf);
+  }
+
   // entities sorted by y (painter's algorithm)
   const ents = [];
   for (const id in mobs) ents.push({ y: mobs[id].cur.y, draw: () => drawMob(mobs[id], tick) });
@@ -1576,6 +1599,37 @@ function frame() {
 
   drawHud();
   requestAnimationFrame(frame);
+}
+
+// ---- player home: pixel cottage + safe zone ring ----
+function drawHome(x, y, owner, mine, ownerInside) {
+  // safe zone ring
+  cx.fillStyle = ownerInside ? 'rgba(120,255,140,.12)' : 'rgba(120,255,140,.05)';
+  cx.beginPath(); cx.arc(x, y, 64, 0, 7); cx.fill();
+  cx.strokeStyle = mine ? 'rgba(255,215,106,.5)' : 'rgba(140,220,150,.35)';
+  cx.setLineDash([4, 5]); cx.lineWidth = 1;
+  cx.beginPath(); cx.arc(x, y, 64, 0, 7); cx.stroke();
+  cx.setLineDash([]);
+  // house body
+  cx.fillStyle = '#a08058'; cx.fillRect(x - 18, y - 22, 36, 22);       // walls
+  cx.fillStyle = '#7a5a3a'; cx.fillRect(x - 18, y - 22, 36, 3);        // beam
+  cx.fillStyle = '#8a3a2a';                                            // roof
+  cx.beginPath(); cx.moveTo(x - 23, y - 22); cx.lineTo(x, y - 38); cx.lineTo(x + 23, y - 22); cx.closePath(); cx.fill();
+  cx.fillStyle = '#6a2a1e';
+  cx.beginPath(); cx.moveTo(x - 23, y - 22); cx.lineTo(x - 18, y - 22); cx.lineTo(x, y - 34); cx.lineTo(x - 23, y - 22); cx.closePath(); cx.fill();
+  cx.fillStyle = '#5d4030'; cx.fillRect(x - 5, y - 12, 10, 12);        // door
+  cx.fillStyle = '#ffe9a8'; cx.fillRect(x + 8, y - 16, 7, 6);          // lit window
+  cx.fillStyle = '#4a3626'; cx.fillRect(x + 8, y - 13, 7, 1); cx.fillRect(x + 11, y - 16, 1, 6);
+  if (ownerInside) {                                                    // chimney smoke when owner home
+    for (let k = 0; k < 3; k++) {
+      cx.fillStyle = 'rgba(220,220,230,' + (0.3 - k * 0.08) + ')';
+      cx.beginPath(); cx.arc(x + 14 + Math.sin(tick / 14 + k) * 3, y - 42 - k * 8 - (tick % 28) / 4, 3 + k, 0, 7); cx.fill();
+    }
+  }
+  // owner label
+  cx.font = 'bold 9px Courier New'; cx.textAlign = 'center';
+  cx.fillStyle = 'rgba(0,0,0,.6)'; cx.fillText('🏠 ' + owner, x + 1, y - 41);
+  cx.fillStyle = mine ? '#ffd76a' : '#bfe8c5'; cx.fillText('🏠 ' + owner, x, y - 42);
 }
 
 function drawBubble(id, x, y) {

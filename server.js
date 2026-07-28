@@ -402,7 +402,7 @@ function verifyToken(token) {
   try { return JSON.parse(Buffer.from(data, 'base64url').toString('utf8')); } catch { return null; }
 }
 function recordOf(p) {
-  return { name: p.name, cls: p.cls, level: p.level, xp: p.xp, zeny: p.zeny, eq: p.eq, st: p.st, sp: p.sp, adv: p.adv || 0, pinHash: p.pinHash, seen: Date.now() };
+  return { name: p.name, cls: p.cls, level: p.level, xp: p.xp, zeny: p.zeny, eq: p.eq, st: p.st, sp: p.sp, adv: p.adv || 0, home: p.home || null, pk: p.pk || 0, pinHash: p.pinHash, seen: Date.now() };
 }
 function sendInv(p) {
   send(p.ws, { t: 'inv', inv: p.eq.inv, eqp: p.eq.eqp, st: p.st, sp: p.sp });
@@ -441,6 +441,8 @@ function makePlayer(ws, name, cls, pinHash, restore) {
     st: (restore && restore.st) ? { str: 0, vit: 0, agi: 0, dex: 0, int: 0, ...restore.st } : { str: 0, vit: 0, agi: 0, dex: 0, int: 0 },
     sp: (restore && restore.sp !== undefined) ? restore.sp : Math.max(0, (level - 1) * 3),
     adv: restore ? (restore.adv || 0) : 0,
+    home: restore ? (restore.home || null) : null,
+    pk: restore ? (restore.pk || 0) : 0,
     lastAtk: 0, lastPot: 0, skillCd: [0, 0, 0, 0, 0, 0, 0], buffUntil: 0, zenyBuffUntil: 0,
     quickenUntil: 0, tsUntil: 0,
     dead: false, respawnAt: 0, lastMoveMsg: Date.now(),
@@ -559,6 +561,7 @@ function hitMonster(p, m, dmg) {
 // damage from a monster to a player, respecting armor cards
 function monsterHitsPlayer(m, t, rawDmg) {
   const p = t;
+  if (inHome(p)) return false;   // safe at home - monsters can't hurt you
   if (Math.random() < cardEff(p, 'a', 'dodge') + (p.dodgeBonus || 0)) {
     broadcast({ t: 'event', kind: 'hit', from: m.id, target: p.id, dmg: 'MISS', tx: Math.round(p.x), ty: Math.round(p.y) });
     return false;
@@ -589,9 +592,15 @@ function nearestMonster(x, y, maxR) {
   return (best && bd <= maxR) ? best : null;
 }
 
-// ---------------- PVP (players can fight each other everywhere) ----------------
+// ---------------- HOME (safe zone bought with zeny) ----------------
+const HOME_COST = 10000;
+const HOME_R = 64;  // safe radius around own home
+function inHome(p) { return !!(p.home && !p.dead && Math.hypot(p.x - p.home.x, p.y - p.home.y) < HOME_R); }
+
+// ---------------- PVP (players can fight each other everywhere - except at home) ----------------
 function pvpTargetable(v, attacker) {
-  return v && !v.dead && v.id !== attacker.id && Date.now() >= v.protectUntil;
+  return v && !v.dead && v.id !== attacker.id && Date.now() >= v.protectUntil
+    && !inHome(v) && !inHome(attacker);   // home = safe zone; also no attacking FROM home
 }
 function playersInRange(attacker, x, y, r) {
   const out = [];
@@ -634,6 +643,23 @@ function hitPlayer(a, v, dmg) {
     v.moving = false;
     broadcast({ t: 'event', kind: 'pkill', killer: a.name, victim: v.name, kid: a.id, vid: v.id });
     grantXp(a, 15 + v.level * 5);
+    // ---- PVP death penalty: killer takes 30% of zeny + 25% chance to steal a random item ----
+    a.pk = (a.pk || 0) + 1;
+    const stolen = Math.floor(v.zeny * 0.3);
+    if (stolen > 0) {
+      v.zeny -= stolen; a.zeny += stolen;
+      broadcast({ t: 'event', kind: 'boss', text: '💰 ' + a.name + ' looted ' + stolen + 'z from ' + v.name + '!' });
+    }
+    if (v.eq.inv.length > 0 && Math.random() < 0.25 && a.eq.inv.length < INV_MAX) {
+      const idx = Math.floor(Math.random() * v.eq.inv.length);
+      const it = v.eq.inv.splice(idx, 1)[0];
+      for (const sl of EQUIP_SLOTS) if (v.eq.eqp[sl] === it.id) v.eq.eqp[sl] = null;
+      a.eq.inv.push(it);
+      recalcStats(v); recalcStats(a);
+      broadcast({ t: 'event', kind: 'boss', text: '🗡️ ' + a.name + ' STOLE ' + itemName(it) + ' from ' + v.name + '!!' });
+      sendInv(v); sendInv(a);
+    }
+    persist(a); persist(v);
   }
 }
 function hitAny(a, tgt, dmg) {
@@ -1052,7 +1078,12 @@ wss.on('connection', (ws) => {
         .sort((a, b) => b.level - a.level || b.zeny - a.zeny)
         .slice(0, 10)
         .map(r => ({ n: r.name, c: r.cls, lv: r.level, z: r.zeny }));
-      send(ws, { t: 'rank', top });
+      const pvp = Object.values(saves)
+        .filter(r => (r.pk || 0) > 0)
+        .sort((a, b) => (b.pk || 0) - (a.pk || 0))
+        .slice(0, 10)
+        .map(r => ({ n: r.name, c: r.cls, lv: r.level, k: r.pk || 0 }));
+      send(ws, { t: 'rank', top, pvp });
       return;
     }
     if (msg.t === 'chat') { handleChat(me, msg); return; }
@@ -1068,9 +1099,31 @@ wss.on('connection', (ws) => {
   });
 });
 
+function sysMsg(p, text) { send(p.ws, { t: 'event', kind: 'chat', id: 'sys', name: 'SYSTEM', text }); }
+
 function handleChat(p, msg) {
   const text = String(msg.text || '').slice(0, 120).trim();
   if (!text) return;
+  // ---- /build : build your home (safe zone) at your current spot ----
+  if (text === '/build') {
+    if (p.zeny < HOME_COST) { sysMsg(p, 'Building a home costs ' + HOME_COST + 'z - you have ' + p.zeny + 'z.'); return; }
+    const tx = p.x / TILE, ty = p.y / TILE;
+    if (tx >= 7 && tx <= 19 && ty >= 2 && ty <= 9) { sysMsg(p, 'Cannot build in town - walk somewhere outside first!'); return; }
+    for (const id in players) {
+      const o = players[id];
+      if (o.id !== p.id && o.home && Math.hypot(o.home.x - p.x, o.home.y - p.y) < 120) { sysMsg(p, 'Too close to another home - move a bit further away.'); return; }
+    }
+    for (const nl in saves) {
+      const r = saves[nl];
+      if (r.name !== p.name && r.home && Math.hypot(r.home.x - p.x, r.home.y - p.y) < 120) { sysMsg(p, 'Too close to another home - move a bit further away.'); return; }
+    }
+    const rebuild = !!p.home;
+    p.zeny -= HOME_COST;
+    p.home = { x: Math.round(p.x), y: Math.round(p.y) };
+    persist(p); sendSave(p);
+    broadcast({ t: 'event', kind: 'boss', text: '🏠 ' + p.name + (rebuild ? ' moved their home!' : ' built a home! A new safe haven appears...') });
+    return;
+  }
   // admin commands (only the admin hero, protected by their PIN)
   if (text.startsWith('/') && p.name.toLowerCase() === ADMIN_NAME) {
     if (text === '/maint') { startMaintenance(); return; }
@@ -1150,10 +1203,11 @@ setInterval(() => {
 
     let tgt = m.target ? players[m.target] : null;
     if (tgt && (tgt.dead || Math.hypot(tgt.x - m.x, tgt.y - m.y) > (t.boss ? 500 : 320))) { tgt = null; m.target = null; }
+    if (tgt && inHome(tgt)) { tgt = null; m.target = null; }   // lose interest when player reaches home
     if (!tgt && t.aggro > 0) {
       for (const pid in players) {
         const p = players[pid];
-        if (p.dead) continue;
+        if (p.dead || inHome(p)) continue;
         if (Math.hypot(p.x - m.x, p.y - m.y) < t.aggro) { m.target = pid; tgt = p; break; }
       }
     }
@@ -1307,7 +1361,8 @@ function publicPlayer(p) {
     xp: p.xp, xn: xpNeeded(p.level), z: p.zeny, dead: p.dead, b: isBuffed(p) ? 1 : 0,
     eq: [w ? w.t : 0, w ? w.p : 0, a ? a.t : 0, a ? a.p : 0], po: [p.eq.red, p.eq.white],
     wc: w ? w.c : null, ac: a ? a.c : null, cd: p.eq.cards, adv: p.adv || 0,
-    spm: 1 + cardEff(p, 'a', 'spd') + (p.spdBonus || 0), au: cardEff(p, 'a', 'aura') > 0 ? 1 : 0
+    spm: 1 + cardEff(p, 'a', 'spd') + (p.spdBonus || 0), au: cardEff(p, 'a', 'aura') > 0 ? 1 : 0,
+    hx: p.home ? p.home.x : 0, hy: p.home ? p.home.y : 0, pk: p.pk || 0, sf: inHome(p) ? 1 : 0
   };
 }
 
