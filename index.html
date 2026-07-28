@@ -844,23 +844,26 @@ function drawChar(x, y, cls, dir, moving, animT, name, hp, mh, lv, isMe, dead, b
   cx.restore();
   cx.globalAlpha = 1;
 
-  // name + level (skipped for NPCs)
+  // name + level on a soft plate (skipped for NPCs)
   if (name) {
     cx.font = 'bold 11px Courier New';
     cx.textAlign = 'center';
-    cx.fillStyle = 'rgba(0,0,0,.6)';
     const label = name + ' Lv' + lv;
-    cx.fillText(label, x + 1, y - 41);
+    const tw = cx.measureText(label).width;
+    cx.fillStyle = 'rgba(8,4,18,.55)';
+    cx.beginPath(); cx.roundRect(x - tw / 2 - 5, y - 52, tw + 10, 14, 4); cx.fill();
     cx.fillStyle = isMe ? '#ffd76a' : '#e8e4f5';
-    cx.fillText(label, x, y - 42);
-    drawBar(x - 14, y - 38, 28, 3, hp / mh, '#e74c3c');
+    cx.fillText(label, x, y - 41);
+    drawBar(x - 14, y - 36, 28, 3, hp / mh, '#e74c3c');
   }
 }
 
 function drawBar(x, y, w, h, ratio, col) {
   cx.fillStyle = 'rgba(0,0,0,.6)'; cx.fillRect(x - 1, y - 1, w + 2, h + 2);
   cx.fillStyle = '#3a3348'; cx.fillRect(x, y, w, h);
-  cx.fillStyle = col; cx.fillRect(x, y, Math.max(0, w * Math.min(1, ratio)), h);
+  const fw = Math.max(0, w * Math.min(1, ratio));
+  cx.fillStyle = col; cx.fillRect(x, y, fw, h);
+  if (fw > 2 && h >= 3) { cx.fillStyle = 'rgba(255,255,255,.30)'; cx.fillRect(x, y, fw, 1); }  // glossy highlight
 }
 
 // ---- monsters ----
@@ -1157,15 +1160,54 @@ function drawTile(c, tx, ty) {
   cx.fillRect(x, y, TILE, TILE);
   const v = (tx * 11 + ty * 17) % 7;
   if (c === '.') {
-    cx.fillStyle = 'rgba(255,255,255,.06)';
-    if (v === 1) cx.fillRect(x + 8, y + 10, 3, 3);
-    if (v === 3) cx.fillRect(x + 20, y + 22, 3, 3);
-    if (v === 5) { cx.fillStyle = '#3e7a33'; cx.fillRect(x + 14, y + 6, 4, 2); }
+    // lush grass: tufts, shading and the occasional tiny flower
+    cx.fillStyle = 'rgba(0,0,0,.05)';
+    if (v >= 4) cx.fillRect(x, y + TILE - 3, TILE, 3);
+    cx.fillStyle = '#3e7a33';
+    if (v === 0) { cx.fillRect(x + 6, y + 8, 2, 5); cx.fillRect(x + 9, y + 6, 2, 7); cx.fillRect(x + 12, y + 9, 2, 4); }
+    if (v === 5) { cx.fillRect(x + 18, y + 18, 2, 5); cx.fillRect(x + 21, y + 16, 2, 7); }
+    cx.fillStyle = '#5fae4c';
+    if (v === 2) { cx.fillRect(x + 22, y + 7, 2, 4); cx.fillRect(x + 25, y + 9, 2, 3); }
+    if (v === 1) { cx.fillStyle = '#ffe9f2'; cx.fillRect(x + 8, y + 12, 3, 3); cx.fillStyle = '#ffd76a'; cx.fillRect(x + 9, y + 13, 1, 1); }
+    if (v === 3) { cx.fillStyle = '#fff'; cx.fillRect(x + 21, y + 22, 3, 3); cx.fillStyle = '#ffb020'; cx.fillRect(x + 22, y + 23, 1, 1); }
   } else if (c === 'w') {
-    cx.fillStyle = 'rgba(255,255,255,.15)';
-    const off = Math.floor(tick / 30 + v) % 3;
-    cx.fillRect(x + 4 + off * 4, y + 8, 8, 2);
-    cx.fillRect(x + 14 - off * 3, y + 22, 8, 2);
+    // living water: rolling two-tone waves + glints
+    const off = Math.floor(tick / 22 + v) % 4;
+    cx.fillStyle = 'rgba(255,255,255,.18)';
+    cx.fillRect(x + 2 + off * 5, y + 7 + Math.floor(Math.sin((tick + tx * 31) / 26) * 2), 10, 2);
+    cx.fillStyle = 'rgba(160,210,255,.25)';
+    cx.fillRect(x + 16 - off * 4, y + 21 + Math.floor(Math.cos((tick + ty * 23) / 24) * 2), 10, 2);
+    cx.fillStyle = 'rgba(20,50,110,.20)';
+    cx.fillRect(x + 6 + ((off + 2) % 4) * 4, y + 14, 8, 2);
+    if (v === 3 && Math.floor(tick / 40) % 3 === 0) { cx.fillStyle = 'rgba(255,255,255,.8)'; cx.fillRect(x + 15, y + 11, 2, 2); }
+  } else if (c === 'd') {
+    // warm sand: speckles, ripples, seashells
+    cx.fillStyle = 'rgba(0,0,0,.06)';
+    if (v === 1) cx.fillRect(x + 5, y + 9, 3, 2);
+    if (v === 4) cx.fillRect(x + 19, y + 20, 3, 2);
+    cx.fillStyle = 'rgba(255,255,255,.22)';
+    if (v === 2) { cx.fillRect(x + 4, y + 16, 8, 1); cx.fillRect(x + 16, y + 24, 9, 1); }
+    if (v === 5) { cx.fillStyle = '#ff9eb5'; cx.fillRect(x + 12, y + 8, 4, 3); cx.fillStyle = '#fff'; cx.fillRect(x + 13, y + 9, 2, 1); }
+    if (v === 0) { cx.fillStyle = '#e8dcb0'; cx.fillRect(x + 22, y + 14, 3, 3); }
+  } else if (c === 'h') {
+    // hellstone: glowing magma cracks that pulse
+    const glow = 0.35 + 0.25 * Math.sin(tick / 14 + tx * 2 + ty);
+    cx.fillStyle = 'rgba(255,90,20,' + glow + ')';
+    if (v <= 2) { cx.fillRect(x + 4, y + 12, 12, 2); cx.fillRect(x + 14, y + 14, 2, 8); }
+    if (v >= 5) { cx.fillRect(x + 18, y + 6, 2, 10); cx.fillRect(x + 10, y + 22, 12, 2); }
+    cx.fillStyle = 'rgba(255,200,60,' + glow * 0.7 + ')';
+    if (v === 1) cx.fillRect(x + 8, y + 13, 3, 1);
+    if (v === 6) cx.fillRect(x + 19, y + 9, 1, 3);
+    cx.fillStyle = 'rgba(0,0,0,.18)';
+    if (v === 3) cx.fillRect(x + 6, y + 5, 7, 4);
+  } else if (c === 'v') {
+    // heaven: soft cloud puffs with golden light
+    cx.fillStyle = 'rgba(255,255,255,.5)';
+    if (v <= 2) { cx.beginPath(); cx.arc(x + 10, y + 12, 7, 0, 7); cx.arc(x + 19, y + 14, 6, 0, 7); cx.fill(); }
+    cx.fillStyle = 'rgba(255,240,190,' + (0.12 + 0.08 * Math.sin(tick / 30 + v)) + ')';
+    if (v >= 4) cx.fillRect(x + 4, y + 4, TILE - 8, TILE - 8);
+    cx.fillStyle = 'rgba(180,195,225,.4)';
+    if (v === 3) { cx.fillRect(x + 6, y + 22, 12, 2); }
   } else if (c === 't') {
     // trunk + canopy
     cx.fillStyle = '#5d4030'; cx.fillRect(x + 13, y + 20, 6, 10);
@@ -1865,8 +1907,47 @@ function frame() {
   drawFx();
   cx.restore();
 
+  drawAmbience();
   drawHud();
   requestAnimationFrame(frame);
+}
+
+// ============ AMBIENCE: zone atmosphere + floating particles ============
+const amb = [];
+for (let i = 0; i < 26; i++) amb.push({ x: Math.random() * 960, y: Math.random() * 600, s: 0.6 + Math.random() * 1.6, ph: Math.random() * 6.28 });
+function drawAmbience() {
+  if (!me) return;
+  const zc = (MAP[Math.floor(me.y / TILE)] || [])[Math.floor(me.x / TILE)] || '.';
+  // zone color grading
+  let tint = null;
+  if (zc === 'h') tint = 'rgba(255,60,20,.07)';
+  else if (zc === 'v') tint = 'rgba(255,245,210,.08)';
+  else if (zc === 'g') tint = 'rgba(30,60,70,.14)';
+  else if (zc === 'c') tint = 'rgba(15,8,40,.16)';
+  else if (zc === 'd' || zc === 'w') tint = 'rgba(255,190,110,.05)';
+  if (tint) { cx.fillStyle = tint; cx.fillRect(0, 0, cv.width, cv.height); }
+  // soft vignette for depth
+  const vg = cx.createRadialGradient(cv.width / 2, cv.height / 2, Math.min(cv.width, cv.height) * 0.42, cv.width / 2, cv.height / 2, Math.max(cv.width, cv.height) * 0.72);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(10,6,24,.34)');
+  cx.fillStyle = vg;
+  cx.fillRect(0, 0, cv.width, cv.height);
+  // floating particles per zone
+  for (const p of amb) {
+    let dx = 0, dy = 0, col = null, r = p.s;
+    if (zc === 'h') { dy = -0.55 * p.s; dx = Math.sin(tick / 20 + p.ph) * 0.3; col = 'rgba(255,' + (110 + Math.floor(60 * Math.sin(tick / 9 + p.ph))) + ',40,'; r = p.s * 1.1; }
+    else if (zc === 'v') { dy = -0.12 * p.s; dx = Math.sin(tick / 26 + p.ph) * 0.25; col = 'rgba(255,230,140,'; }
+    else if (zc === 'g') { dx = 0.22 * p.s; dy = Math.sin(tick / 34 + p.ph) * 0.1; col = 'rgba(170,200,190,'; r = p.s * 4; }
+    else if (zc === 'c') { dy = 0.08 * p.s; col = 'rgba(180,150,255,'; r = p.s * 0.8; }
+    else if (zc === 'd' || zc === 'w') { dy = -0.1 * p.s; dx = 0.18; col = 'rgba(255,240,200,'; r = p.s * 0.9; }
+    else { dx = Math.sin(tick / 30 + p.ph) * 0.25; dy = -0.14 * p.s; col = 'rgba(210,255,190,'; r = p.s * 0.9; }
+    p.x += dx; p.y += dy;
+    if (p.x < -10) p.x = cv.width + 8; if (p.x > cv.width + 10) p.x = -8;
+    if (p.y < -10) p.y = cv.height + 8; if (p.y > cv.height + 10) p.y = -8;
+    const a = zc === 'g' ? 0.05 + 0.03 * Math.sin(tick / 22 + p.ph) : 0.18 + 0.14 * Math.sin(tick / 11 + p.ph);
+    cx.fillStyle = col + Math.max(0.02, a) + ')';
+    cx.beginPath(); cx.arc(p.x, p.y, r, 0, 7); cx.fill();
+  }
 }
 
 // ---- player home: pixel cottage + safe zone ring ----
